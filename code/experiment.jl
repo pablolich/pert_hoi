@@ -5,7 +5,21 @@ using DelimitedFiles
 using Random
 
 """
-build glv polynomial
+evaluate jacobian of glv hoi model and return smallest eigenvalue
+"""
+function linearstability(syst, point)
+    jac = jacobian(syst, point)
+    eigRe = real(eigen(jac).values)
+    return maximum(eigRe)
+end
+
+function linearstabilitymany(syst, points)
+    nsols = size(points, 1)
+    return [linearstability(syst, points[i]) for i in 1:nsols]
+end
+
+"""
+build glv model
 """
 function buildglvhoi(pars, x)
     #unpack parameters
@@ -16,7 +30,7 @@ function buildglvhoi(pars, x)
     for i in 1:n
 	eqs[i] += (alpha .* ( x'*B[:,:,i]*x ))[1]
     end
-    return eqs
+    return diagm(x) * eqs
 end
 
 """
@@ -44,6 +58,11 @@ function parametersubstitution(par_syst, par_value, pars)
     return copysyst
 end
 
+function count_nonzero(matrix::Vector{Vector{ComplexF64}}; tol::Float64=1e-9)
+    return [count(x -> abs(real(x)) > tol, row) for row in matrix]
+end
+
+
 """
 calculate equilibrium of glv as a function of parameters (r, A, B)
 and using parameter homotopy for alpha, which takes values tarpars to endpars
@@ -61,11 +80,14 @@ function traversealpha(par_syst, initialsol, startpars, endpars, sim, n, step)
     res = solve(syst, compile = false)
     solmat = solutions(res)
     nsols = nsolutions(res)
+    smallesteigenvals = linearstabilitymany(syst, solmat)
+    #get how many species there are in each solution
+    nfinal = count_nonzero(solmat)
     #save result
     solutionslong = decomposemany(solmat)
-    tosave = getstorerows(solutionslong, nsols, sim, n, endpars)
+    tosave = getstorerows(solutionslong, nsols, sim, n, nfinal, startpars, smallesteigenvals)
     #save
-    open("/Users/pablolechon/Desktop/hoi_pert/data/solutionevoloution.csv", "a") do io
+    open("/Users/pablolechon/Desktop/pert_hoi/data/solutionevoloution.csv", "a") do io
 	writedlm(io, tosave, ' ')
     end
     #prepare for next step
@@ -84,12 +106,15 @@ end
 """
 auxiliary function to facilitate storing results
 """
-function getstorerows(solutionslong, nsols, sim, n, parvalue) 
+function getstorerows(solutionslong, nsols, sim, n, nfinal, parvalue, eigenvals) 
     nvec = repeat([n], nsols*n) 
+    nfinalvec = repeat(nfinal, inner = n)
     simvec = repeat([sim], nsols*n)
     solcomp = repeat(collect(1:n), nsols)
+    eqid = repeat(collect(1:nsols), inner = n)
+    eigenvalslong = repeat(eigenvals, inner = n)
     parvalvec = repeat(parvalue, nsols*n)
-    return [simvec nvec parvalvec solcomp solutionslong]
+    return [simvec nvec nfinalvec parvalvec solcomp eqid solutionslong eigenvalslong]
 end
 
 """
@@ -160,7 +185,7 @@ end
 main function to run script
 """
 function main()
-    nmax = 2
+    nmax = 3
     nsim = 1
     seed = 2
     rng = MersenneTwister(seed)
