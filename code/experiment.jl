@@ -1,8 +1,8 @@
 using HomotopyContinuation
-using RandomMatrix
 using LinearAlgebra
 using DelimitedFiles
 using Random
+using IterTools
 
 """
 evaluate jacobian of glv hoi model and return smallest eigenvalue
@@ -87,7 +87,7 @@ function traversealpha(par_syst, initialsol, startpars, endpars, sim, n, step)
     solutionslong = decomposemany(solmat)
     tosave = getstorerows(solutionslong, nsols, sim, n, nfinal, startpars, smallesteigenvals)
     #save
-    open("/Users/pablolechon/Desktop/pert_hoi/data/solutionevoloution.csv", "a") do io
+    open("/Users/pablolechon/Desktop/pert_hoi/data/solutionevoloutioncomk.csv", "a") do io
 	writedlm(io, tosave, ' ')
     end
     #prepare for next step
@@ -123,10 +123,9 @@ decompose solution in real and imaginary, and stack components in columns
 function decomposesolution(solution)
     n = length(solution)
     #initialize matrix
-    sol_mat = Array{Float64}(undef, n,2)
+    sol_mat = Array{Float64}(undef, n)
     for i in 1:n
         sol_mat[i,1] = real(solution[i])
-        sol_mat[i,2] = imag(solution[i])
     end
     return sol_mat
 end
@@ -138,7 +137,7 @@ function decomposemany(solutionsmat)
     nsols = size(solutionsmat, 1)
     nspp = length(solutionsmat[1])
     #initialize matrix of storing many decomposed solutions
-    sols_mat = Array{Float64}(undef, nspp*nsols, 2)
+    sols_mat = Array{Float64}(undef, nspp*nsols, 1)
     for i in 1:nsols
         solutioni = solutionsmat[i]
         decomposedsol = decomposesolution(solutioni)
@@ -151,23 +150,22 @@ end
 """
 sample tesnor of HOIs with constraints
 """
-function sampleB(n, r0, rng)
-    B = zeros((n, n, n))
+function constrainB(B, r0)
+    Bconst = zeros((n, n, n))
     for i in 1:n
 	randmat = randn(rng, (n,n))
-	B[:,:,i] .= -r0/sum(randmat) .* randmat
+	Bconst[:,:,i] .= -r0/sum(B[:,:,i]) .* B[:,:,i]
     end
-    return B
+    return Bconst
 end
 
 """
 sample row stochastic matrix
 """
-function sampleA(n, r0, rng)
-    randmat = randn(rng, (n,n))
-    sumrows = sum(randmat, dims = 2)
-    A = -r0 .* diagm(1 ./ vec(sumrows)) * randmat
-    return A
+function constrainA(A, r0)
+    sumrows = sum(A, dims = 2)
+    Aconst = -r0 .* diagm(1 ./ vec(sumrows)) * A
+    return Aconst
 end
 
 """
@@ -176,8 +174,10 @@ sample parameters such that ones(n) is a zero of the system
 function sampleparameters(n, rng)
     r0 = randn(rng)
     r = repeat([r0], n)
-    A = sampleA(n, r0, rng)
-    B = sampleB(n, r0, rng)
+    randA = randn((n,n))
+    randB = randn((n,n,n))
+    A = constrainA(randA, r0)
+    B = constrainB(randB, r0)
     return r, A, B
 end
 
@@ -185,9 +185,9 @@ end
 main function to run script
 """
 function main()
-    nmax = 3
-    nsim = 1
-    seed = 2
+    nmax = 4
+    nsim = 50
+    seed = 1 #abs(rand(Int))
     rng = MersenneTwister(seed)
     initialstep = .01
     @var alpha[1:1]
@@ -207,4 +207,4 @@ function main()
     return 0
 end
 
-main()
+#main()
