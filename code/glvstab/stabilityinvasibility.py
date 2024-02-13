@@ -10,9 +10,6 @@ import sys
 import pandas as pd
 import numpy as np
 import itertools
-sys.path.insert(1, "/Users/pablolechon/Desktop/usefullprograms/code")
-from essential_tools import GLV, Community
-
 
 ## CONSTANTS ##
 
