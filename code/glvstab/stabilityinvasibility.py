@@ -7,6 +7,8 @@ __version__ = '0.0.1'
 ## IMPORTS ##
 
 import sys
+import os
+import json
 import pandas as pd
 import numpy as np
 import itertools
@@ -75,19 +77,36 @@ def storeresults(n, sim, d, nfinal, subcom, xstar, lambdamax, invasible):
             spvec, list(xstar), lambdamaxvec, invasiblevec])
     return np.transpose(tostore)
 
+def append_to_file(file_path, rows_to_append, overwrite=False):
+    try:
+        # Check if the file exists
+        if os.path.exists(file_path):
+            mode = 'w' if overwrite else 'a'
+        else:
+            mode = 'w'
+
+        # Open the file in appropriate mode
+        with open(file_path, mode) as file:
+            # Append each row
+            for row in rows_to_append:
+                row_as_list = row.tolist()
+                file.write(json.dumps(row_as_list)[1:-1] + '\n')
+    except IOError:
+        print("Error: Could not write to the file.")
+
 def main(argv):
     '''Main function'''
     #set simulation parameters
-    nsims = 10
+    nsims = 2
     #set model parameters
-    nmax = 6
+    nmax = 3
     dmax = 2
-    step = 0.01
+    step = 0.5
     #initialize storage
     storingmat = np.empty((0, 9))
     for sim in range(nsims):
+        print("Simulation: ", sim)
         for n in range(2,nmax):
-            print("Diversity ", n)
             d = 0
             C = -np.random.rand(n, n) #positive mean
             r = np.ones(n)
@@ -118,14 +137,14 @@ def main(argv):
                             submatrix = storeresults(n, sim, d, nfinal, subcom, xstar,\
                                     lambdamax, is_invasible)
                             #add to bigger matrix
-                            storingmat = np.append(storingmat, submatrix, axis = 0)
-                            #otherwise, jump to next subcommunity
+                            #storingmat = np.append(storingmat, submatrix, axis = 0)
+                            #append to file
+                            append_to_file('histdresults.csv', submatrix)
+                           
+                    #otherwise, jump to next subcommunity
                     else:
                         continue
                 d += step
-    #save results
-    df = pd.DataFrame(storingmat)
-    df.to_csv('stabresults.csv', index=False, header = False)
     return 0
 
 ## CODE ##
@@ -133,5 +152,3 @@ def main(argv):
 if (__name__ == '__main__'):
    status = main(sys.argv)
    sys.exit(status)
-	    
-
