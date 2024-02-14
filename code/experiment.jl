@@ -62,59 +62,18 @@ function count_nonzero(matrix::Vector{Vector{ComplexF64}}; tol::Float64=1e-9)
     return [count(x -> abs(real(x)) > tol, row) for row in matrix]
 end
 
-
-"""
-calculate equilibrium of glv as a function of parameters (r, A, B)
-and using parameter homotopy for alpha, which takes values tarpars to endpars
-
-par_syst:
-initialsol:
-startpars:
-endpars:
-"""
-function traversealpha(par_syst, initialsol, startpars, endpars, sim, n, step)
-    #res = solve(par_syst, initialsol; start_parameters = startpars, 
-    #            target_parameters = endpars)	
-    #substitute parameters
-    syst = parametersubstitution(par_syst, endpars, par_syst.parameters)
-    res = solve(syst, compile = false)
-    solmat = solutions(res)
-    nsols = nsolutions(res)
-    smallesteigenvals = linearstabilitymany(syst, solmat)
-    #get how many species there are in each solution
-    nfinal = count_nonzero(solmat)
-    #save result
-    solutionslong = decomposemany(solmat)
-    tosave = getstorerows(solutionslong, nsols, sim, n, nfinal, startpars, smallesteigenvals)
-    #save
-    open("/Users/pablolechon/Desktop/pert_hoi/data/solutionevoloutioncomk.csv", "a") do io
-	writedlm(io, tosave, ' ')
-    end
-    #prepare for next step
-    initialsol = solmat[1]
-    startpars .= endpars
-    endpars .+= step
-    #check if traversing has converged
-    if startpars[1] >= 1.0
-	return 0
-    #run function again if not
-    else
-	return traversealpha(par_syst, initialsol, startpars, endpars, sim, n, step)
-    end
-end
-
 """
 auxiliary function to facilitate storing results
 """
-function getstorerows(solutionslong, nsols, sim, n, nfinal, parvalue, eigenvals) 
+function getstorerows(solutionslong, nsols, sim, n, constr, parvalue, eigenvals) 
     nvec = repeat([n], nsols*n) 
-    nfinalvec = repeat(nfinal, inner = n)
     simvec = repeat([sim], nsols*n)
     solcomp = repeat(collect(1:n), nsols)
     eqid = repeat(collect(1:nsols), inner = n)
     eigenvalslong = repeat(eigenvals, inner = n)
     parvalvec = repeat(parvalue, nsols*n)
-    return [simvec nvec nfinalvec parvalvec solcomp eqid solutionslong eigenvalslong]
+    constrvec = repeat([constr], nsols*n)
+    return [simvec nvec constrvec parvalvec solcomp eqid solutionslong eigenvalslong]
 end
 
 """
@@ -150,7 +109,7 @@ end
 """
 sample tesnor of HOIs with constraints
 """
-function constrainB(B, r0)
+function constrainB(B, r0, n, rng)
     Bconst = zeros((n, n, n))
     for i in 1:n
 	randmat = randn(rng, (n,n))
@@ -171,22 +130,60 @@ end
 """
 sample parameters such that ones(n) is a zero of the system
 """
-function sampleparameters(n, rng)
+function sampleparameters(n, rng, constrained = false)
     r0 = randn(rng)
     r = repeat([r0], n)
-    randA = randn((n,n))
-    randB = randn((n,n,n))
-    A = constrainA(randA, r0)
-    B = constrainB(randB, r0)
-    return r, A, B
+    A = randn((n,n))
+    B = randn((n,n,n))
+    Aconstr = constrainA(A, r0)
+    Bconstr = constrainB(B, r0, n, rng)
+    return r, A, B, Aconstr, Bconstr
+end
+
+function traversealpha(par_syst, endpars, sim, n, step, x, constr)
+    #res = solve(par_syst, initialsol; start_parameters = startpars, 
+    #            target_parameters = endpars)	
+    #substitute parameters
+    syst = parametersubstitution(par_syst, endpars, par_syst.parameters)
+    res = solve(syst ./ x, compile = false) #only find solutions with non-zeros
+    solmat = real_solutions(res)
+    if isempty(solmat)
+	#no real soutions
+    else
+	#solmat = mapreduce(permutedims, vcat, sols)
+	#solmat = remove_negative_rows(solmat) #remove nonfeasible sols
+	if isempty(solmat)
+	    #no positive solutions
+	else 
+	    nsols = size(solmat, 1)
+	    smallesteigenvals = linearstabilitymany(syst, solmat)
+	    #get how many species there are in each solution
+	    #save result
+	    solutionslong = decomposemany(solmat)
+	    tosave = getstorerows(solutionslong, nsols, sim, n, constr, endpars, smallesteigenvals)
+	    #save
+	    open("/Users/pablolechon/Desktop/pert_hoi/data/portrait.csv", "a") do io
+		writedlm(io, tosave, ' ')
+	    end
+	end
+    end
+    #prepare for next step
+    endpars .+= step
+    #check if traversing has converged
+    if endpars[1] >= 1.0
+	return 0
+    #run function again if not
+    else
+	return traversealpha(par_syst, endpars, sim, n, step, x, constr)
+    end
 end
 
 """
 main function to run script
 """
 function main()
-    nmax = 4
-    nsim = 50
+    nmax = 5
+    nsim = 100
     seed = 1 #abs(rand(Int))
     rng = MersenneTwister(seed)
     initialstep = .01
@@ -195,16 +192,23 @@ function main()
 	@var x[1:n]
     	for sim in 1:nsim
 	    println("diversity: ", n, " simulation: ", sim)
-	    #sample parameters 
-	    modelpars = sampleparameters(n, rng)
-    	    pars = (alpha, modelpars...)
+	    #sample parameters (unconstr)
+	    allpars = sampleparameters(n, rng)
+	    modelpars = allpars[1:3]
+	    modelparsconstr = (allpars[1], allpars[4:5]...)
+    	    parsunconstr = (alpha, modelpars...)
+	    parsconstr = (alpha, modelparsconstr...)
 	    #build system
-	    eqs = buildglvhoi(pars, x)
-	    syst = System(eqs, parameters = alpha)
-	    traversealpha(syst, ones(n), [.0], [.0+initialstep], sim, n, initialstep)
+	    eqsunconstr = buildglvhoi(parsunconstr, x)
+	    systunconstr = System(eqsunconstr, parameters = alpha)
+	    traversealpha(systunconstr, [.0], sim, n, initialstep, x, false)
+	    #recalculate for constrained parameters
+	    eqsconstr = buildglvhoi(parsconstr, x)
+	    systconstr = System(eqsconstr, parameters = alpha)
+	    traversealpha(systconstr, [.0], sim, n, initialstep, x, true)
 	end
     end
     return 0
 end
 
-#main()
+main()

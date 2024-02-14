@@ -54,7 +54,7 @@ function traversealpha(par_syst, endpars, sim, n, step, signs, x)
 	    #get how many species there are in each solution
 	    #save result
 	    solutionslong = decomposemany(solmat)
-	tosave = getstorerows(solutionslong, nsols, sim, n, signs, endpars, smallesteigenvals)
+	    tosave = getstorerows(solutionslong, nsols, sim, n, signs, endpars, smallesteigenvals)
 	    #save
 	    open("/Users/pablolechon/Desktop/pert_hoi/data/portraitsigned.csv", "a") do io
 		writedlm(io, tosave, ' ')
@@ -76,10 +76,10 @@ end
 sample parameters such that ones(n) is a zero of the system
 """
 function sampleparameters(n, rng)
-    randr = randn(n)
+    r = randn(r)
     randA = randn((n,n))
     randB = randn((n,n,n))
-    return randr, randA, randB
+    return r, randA, randB
 end
 
 """
@@ -120,7 +120,7 @@ main function to run script
 function main()
     nmax = 5
     nsim = 200
-	    seed = 1 #abs(rand(Int))
+    seed = 1 #abs(rand(Int))
     rng = MersenneTwister(seed)
     initialstep = .01
     signedcombs = allsignedcombs([0, 1, -1])

@@ -1,12 +1,13 @@
 library("tidyverse")
 
-dat = read.table("../data/portraitsigned.csv")
-colnames(dat) = c("sim", "n", "rsign", "Asign", "Bsign", "alpha", "spp", "eqID", "xRe", "lambdaRe")
+dat = read.table("../data/portrait.csv")
+colnames(dat) = c("sim", "n", "alpha", "spp", "eqID", "xRe", "lambdaRe")
 
-datplot = dat %>% group_by(sim, n, eqID, alpha, rsign, Asign, Bsign) %>% 
+datplot = dat %>% group_by(sim, n, eqID, alpha) %>% 
   mutate(feasible = all(xRe > 0),
          stable = lambdaRe<0) %>% 
-  filter(feasible == T)
+  filter(feasible == T,
+         stable==T)
 
 nsims = max(datplot$sim)
 nmax = max(datplot$n)
@@ -28,8 +29,7 @@ for (ncurr in 1:nmax){
         geom_point()+
         scale_y_continuous(trans='log10')+
         scale_size_manual(values = c(0.1, 1))+
-        theme(aspect.ratio = 0.8)+
-        facet_wrap(~interaction(rsign, Asign, Bsign))
+        theme(aspect.ratio = 0.8)
       plotlist[[ind]] = ploti
       ind = ind + 1
     }
