@@ -2,7 +2,9 @@ using HomotopyContinuation
 using LinearAlgebra
 using DelimitedFiles
 using Random
-using IterTools
+using JuMP
+using Ipopt
+using Kronecker
 
 """
 evaluate jacobian of glv hoi model and return smallest eigenvalue
@@ -32,19 +34,6 @@ function buildglvhoi(pars, x)
     end
     return diagm(x) * eqs
 end
-
-"""
-perturb growthrates
-"""
-
-"""
-maximize the timestep that allows you to get a smooth curve on the phase diagram
-"""
-function getstep(maxdistance, initialstep)
-    dist = norm(initialeq - finaleq)
-    return parameterrange*(exp(1/dist) - 1)
-end
-
 
 """
 substitute parameter by actual value in system
@@ -109,13 +98,16 @@ end
 """
 sample tesnor of HOIs with constraints
 """
-function constrainB(B, r0, n, rng)
+function constrainB(B, r0, n)
     Bconst = zeros((n, n, n))
     for i in 1:n
-	randmat = randn(rng, (n,n))
 	Bconst[:,:,i] .= -r0/sum(B[:,:,i]) .* B[:,:,i]
     end
     return Bconst
+end
+
+function isstoc(vec, tol)
+    return all(abs.(vec .- 1) .< tol)
 end
 
 """
@@ -130,14 +122,52 @@ end
 """
 sample parameters such that ones(n) is a zero of the system
 """
-function sampleparameters(n, rng, constrained = false)
+function sampleparameters(n, rng)
     r0 = randn(rng)
     r = repeat([r0], n)
     A = randn((n,n))
     B = randn((n,n,n))
     Aconstr = constrainA(A, r0)
-    Bconstr = constrainB(B, r0, n, rng)
+    Bconstr = constrainB(B, r0, n)
     return r, A, B, Aconstr, Bconstr
+end
+
+function buildrowconstraintmat(n)
+    return collect(transpose(kronecker(I(n), repeat([1], n))))
+end
+
+function buildcolconstraintmat(n)
+    return collect(transpose(kronecker(repeat([1], n), I(n))))
+end
+
+"""
+get the closest (in the frobenious norm sense) bistochastic matrix to a given one
+"""
+function getclosestbistochastic(A, n)
+    #get matrices of  constraints
+    rowconsmat = buildrowconstraintmat(n)
+    colconsmat = buildcolconstraintmat(n)
+    consvec = repeat([1], n)
+
+    #perform optimization
+    model = Model(Ipopt.Optimizer)
+    @variable(model, x[1:n^2])
+    @objective(model, Min, sqrt(sum((vec(A) .- x).^2)))
+    @constraint(model, rowconsmat * x .== consvec)
+    @constraint(model, colconsmat * x .== consvec)
+    optimize!(model)
+    #get result in matrix form
+    result = reshape([value(x[i]) for i in 1:n^2], n, n)
+    return result
+end
+
+function getconstantsumB(B0, n, r0)
+    Bconstsum = zeros((n,n,n))
+    for i in 1:n
+	Bi = B0[:,:, i]
+	Bconstsum[:,:,i] .= -r0/n*getclosestbistochastic(Bi, n)
+    end
+    return Bconstsum
 end
 
 function traversealpha(par_syst, endpars, sim, n, step, x, constr)
@@ -182,8 +212,8 @@ end
 main function to run script
 """
 function main()
-    nmax = 5
-    nsim = 100
+    nmax = 4
+    nsim = 500
     seed = 1 #abs(rand(Int))
     rng = MersenneTwister(seed)
     initialstep = .01
@@ -198,17 +228,26 @@ function main()
 	    modelparsconstr = (allpars[1], allpars[4:5]...)
     	    parsunconstr = (alpha, modelpars...)
 	    parsconstr = (alpha, modelparsconstr...)
+	    parsconstr2 = deepcopy(parsconstr)
+	    #get constant sum Bo
+	    println(size(allpars[3]))
+	    Bconst = getconstantsumB(allpars[3], n, allpars[1][1]) 
+	    parsconstr2[4] .= Bconst
 	    #build system
 	    eqsunconstr = buildglvhoi(parsunconstr, x)
 	    systunconstr = System(eqsunconstr, parameters = alpha)
-	    traversealpha(systunconstr, [.0], sim, n, initialstep, x, false)
-	    #recalculate for constrained parameters
+	    traversealpha(systunconstr, [.0], sim, n, initialstep, x, 0)
+	    #recalculate for parameters with planted eq
 	    eqsconstr = buildglvhoi(parsconstr, x)
 	    systconstr = System(eqsconstr, parameters = alpha)
-	    traversealpha(systconstr, [.0], sim, n, initialstep, x, true)
+	    traversealpha(systconstr, [.0], sim, n, initialstep, x, 1)
+	    #recalculate for constrained parameters  
+	    eqsconstr2 = buildglvhoi(parsconstr2, x)
+	    systconstr2 = System(eqsconstr2, parameters = alpha)
+	    traversealpha(systconstr2, [.0], sim, n, initialstep, x, 2)
 	end
     end
     return 0
 end
 
-main()
+#main()
