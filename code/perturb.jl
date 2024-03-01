@@ -8,7 +8,7 @@ include("experiment.jl")
 """
 calculate inverse of jacobian
 """
-function invjac(n, alpha, A, B, point)
+function jac(n, alpha, A, B, point)
     jac = zeros((n,n))
     for i in 1:n
     	for j in 1:n
@@ -67,7 +67,7 @@ end
 function find_column(vector::Vector{Float64}, matrix::Matrix{Float64})
     n, m = size(matrix)
     for j in 1:m
-        if all(vector .== matrix[:, j])
+	if norm(vector .- matrix[:, j], 2) < 1e-6
             return j
         end
     end
@@ -77,6 +77,7 @@ end
 
 function identifyequilibria(v::Vector{Vector{Float64}}, tol::Float64=1e-6)
     # Transform the vector of vectors into a matrix
+    matori = hcat(v...)
     mat = hcat(v...)
 
     # Find columns with at least one element less than zero
@@ -92,14 +93,15 @@ function identifyequilibria(v::Vector{Vector{Float64}}, tol::Float64=1e-6)
     for i in 1:size(matdel, 2)
         col = matdel[:, i]
         if all(x -> abs(x - col[1]) ≤ tol, col)
-	    return find_column(col, mat)
+	    #return col
+	    return find_column(col, matori)
         end
     end
 
     return false  # If no such column is found
 end
 
-nsims = 200
+nsims = 2000
 nmax = 5
 @var alpha[1:1]
 seed = 1 #abs(rand(Int))
@@ -131,6 +133,22 @@ for n in 2:nmax
 		modelparspert = deepcopy(modelpars)
 		modelparspert[1] .= modelparspert[1]*(1+pertmod*randn())
 		rpert = modelparspert[1][1]
+		#calculate linear approximation of perturbation
+		#originalsyst = System(diagm(x) * syst.expressions)
+		jacmat = jacobian(syst, ones(n))
+		inv_j = []
+		try
+		    inv_j = inv(jacmat)
+		catch e
+		    if isa(e, SingularException)
+			println("Matrix is not invertible, continuing...")
+			continue
+		    else
+		    end
+		end
+		deltar = modelparspert[1] - modelpars[1]
+		deltax = -inv_j*deltar
+		#create model
 		allparspert = (alpha, modelparspert...)
 		eqspert = buildglvhoi(allparspert, x)
 		par_systpert = System(eqspert ./ x, parameters = alpha)
@@ -144,14 +162,14 @@ for n in 2:nmax
 		solmatpert = real_solutions(respert)
 		#compare equilibria
 		indeq = identifyequilibria(solmatpert)    
-		println(indeq)
 		if indeq != false
 		    xpert = solmatpert[indeq]
-		    ratioeqs = abs.(1 .- xpert)[1]
+		    deltaxnorm = norm(xpert - ones(n), 2)
  	        else
-		    ratioeqs = -1
+		    deltaxnorm = -1
 		end
-		tostore = [n alphavalue r0 pertmod sim rpert ratioeqs]
+		#return allpars, allparspert, syst, systpert, solmatpert, xpert, deltax, deltar
+		tostore = [n alphavalue pertmod sim norm(deltar, 2) norm(deltax, 2) deltaxnorm]
 		#save
 		open("/Users/pablolechon/Desktop/pert_hoi/data/perturbation.csv", "a") do io
 		    writedlm(io, tostore, ' ')
@@ -161,10 +179,3 @@ for n in 2:nmax
 	end
     end
 end
-#for many simulations
-    #for several n
-        #Build system
-    	#Build small homogeneous perturbation of system
-    	#calculate roots of both systems
-    	#measure sensitivity to perturbation
-    	#store
