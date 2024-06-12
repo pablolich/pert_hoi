@@ -128,8 +128,9 @@ function sampleparameters(n, rng)
     A = randn((n,n))
     B = randn((n,n,n))
     Aconstr = constrainA(A, r0)
-    Bconstr = constrainB(B, r0, n)
-    return r, A, B, Aconstr, Bconstr
+    #Bconstr = constrainB(B, r0, n)
+    Bconstrstoch = getconstantsumB(B, n, r0) #equilibrium and tractability constraints.
+    return r, A, B, Aconstr, Bconstrstoch
 end
 
 function buildrowconstraintmat(n)
