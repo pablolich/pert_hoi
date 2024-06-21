@@ -3,7 +3,7 @@ library(gridExtra)
 library(RColorBrewer)
 #library(tune)
 
-dat = read.table("../data/boundaryportraitallcons.csv")
+dat = read.table("../data/boundaryportrait.csv")
 colnames(dat) = c("sim", "alpha", 
                   "dtheta", "theta", "rho", 
                   "r01", "r02",
@@ -22,10 +22,10 @@ dat = dat %>%
 
 pdf("../data/phaseportraitallcons.pdf")
 #less alphas for plotting purposes
-datred = dat %>% filter(alpha == 0 | alpha == 0.3 | alpha == 0.6)
+#datred = dat %>% filter(alpha == 0 | alpha == 0.3 | alpha == 0.6)
 for (i in 1:max(dat$sim)){
-  datsim = datred %>% filter(sim == i)
-  #datsim = dat %>% filter(sim == i)
+  #datsim = datred %>% filter(sim == i)
+  datsim = dat %>% filter(sim == i)
   dataround = datsim %>% filter(homo == T)
 
   p = ggplot(datsim, aes(x = x1/(x01), y = x2/(x02),

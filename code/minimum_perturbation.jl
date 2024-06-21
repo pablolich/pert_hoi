@@ -221,32 +221,6 @@ function linearresponse(x, pars, x0, r0)
     return deltax + x0
 end
 
-function getpermutations(n)
-    nperm = 2^n-1
-    mat = zeros(nperm, n)
-    for i in 1:nperm
-        perm_i = digits(i, base = 2, pad = n)
-        mat[i,:] = perm_i
-    end
-    return mat
-end
-
-function cartesianperturbations(vec, allperts, n)
-    #get all permutations of n elements
-    nperm = 2^n-1
-    nperts = length(allperts)
-    perm_mat = getpermutations(n)
-    pert_mat = []
-    #for each permutation (row of perm_mat) form all perturbations
-    for i in 1:nperm
-        pert_mask = perm_mat[i,:]
-        pert_mat_i = [ vec .+ allperts[i] .* pert_mask for i in 1:nperts ]
-        println(pert_mat_i)
-        push!(pert_mat, pert_mat_i) 
-    end
-    return vcat(pert_mat...)
-end
-
 function generate_limits(dim::Int, lower::Real=0.0, upper::Real=1.0)
     limits = [(lower, upper) for _ in 1:dim]
     return limits
@@ -254,111 +228,129 @@ end
 
 function generate_grid(limits::Vector{Tuple{T,T}}, grain::Int64=3) where T
     ranges = [range(limit[1], limit[2], length=grain) for limit in limits]
-    points = collect(Iterators.product(ranges...))
-    return points
+    points = vcat(collect(Iterators.product(ranges...))...)
+    npoints = size(points)[1]
+    return [collect(points[i]) for i in 1:npoints]
 end
 
-n = 2
-@var x[1:n]
-rng = MersenneTwister(2)
-nsim = 200
-thetavec = collect(0:pi/64:2*pi)
-for sim in 1:nsim
-    #get parameters leading to feasibility
-    constr = false
-    alpha = 0
-    r0, A, B = getfeasiblepars(n, alpha, rng)
-    #constr = true
-    #r0, A, B = sampleparameters(n, rng)
-    for alpha in collect(0:0.1:1)
-        pars = (alpha, r0, A, B)
-        #solve unperturbed system
-        solmat0 = makeandsolve(x, pars)
-        #get positions of feasible equilibria
-        indrows = getfeasrowinds(solmat0)
-        #get the matrix of feasible equilibria
-        feas_eq_mat = solmat0[indrows,:]
-        if size(feas_eq_mat)[1] == 0
-            continue
-        end
-        #pick reference equilibrium
-        if constr
-            xstar0 = [1,1]
-        else
-            xstar0 = feas_eq_mat[1,:]
-        end
-        #store equlibrium we are dealing with
-        xstari = [1,1]
-        #initialize polygon area
-        rprev = []
-        area = 0
-        #traverse full 3D space in polar coordinates 
-        rho = 0
-        rnew = r0
-        feasible = true #start with feasible equilibrium always
-        while feasible  
-            #make a round about
-            for i_theta in 1:length(thetavec)
-                theta = thetavec[i_theta]
-                println("Searching boundary for sim = ", sim, " alpha = ", alpha, " rho = ", rho, " theta = ", theta)
-                rnew = r0 .+ pol2cart(theta, rho)
-                #form new parameter set 
-                parsnew = (alpha, rnew, A, B)
-                #get linear approximation of response to perturbation
-                xstarlinear = linearresponse(x, parsnew, xstar0, r0)
-                solmat = makeandsolve(x, parsnew)
-                feasible = anyrowfeasible(solmat)
-                #when we hit a boundary, skip iteration
-                if feasible == false
-                    continue
-                end
-                #identify correct equilibria
-                ind_eq_new = identifyequilibrium(xstari, solmat)
-                xstari = solmat[ind_eq_new,:]
-                #check if there is still a feasible equilibria or not
-                feasible = all(xstari .> 0)
-                #add sector area if feasibility remains
-                if i_theta == 1
-                    areai = 0
-                else
-                    theta1 = thetavec[i_theta-1]
-                    theta2 = theta
-                    areai = getsectorarea(theta1, theta2, rho)
-                end
-                area += areai
-                println(angle(rnew, r0))
-                storexstar = hcat(sim, alpha, abs(pi/4 - theta),#angle(r0, pol2cart(theta, 1)), 
-                                    theta, 
-                                    rho, transpose(abs.(r0)), transpose(rnew - r0), transpose(xstari), 
-                                    transpose(xstar0), transpose(xstarlinear), area)
-                open("../data/boundaryportrait.csv", "a") do io
-                    writedlm(io, storexstar, ' ')
-                end
-            end
-            #increase radius
-            rho += 0.1
-            #stop simulating when reaching maximum radius
-            if rho > 1
-                feasible = false
-            end
+function find_bin(number, bins)
+    for (i, bin_end) in enumerate(bins)
+        if number <= bin_end
+            return i
         end
     end
+    return length(bins) + 1  # If number is larger than all bins
 end
 
+# #for visualization purposes; exploration is NOT good.
+# n = 2
+# @var x[1:n]
+# rng = MersenneTwister(2)
+# nsim = 2000
+# thetavec = collect(0:pi/64:2*pi)
+# for sim in 1:nsim
+#     #get parameters leading to feasibility
+#     #constr = false
+#     #alpha = 0
+#     #r0, A, B = getfeasiblepars(n, alpha, rng)
+#     constr = true
+#     r0, A, B = sampleparameters(n, rng)
+#     for alpha in collect(0:0.1:1)
+#         pars = (alpha, r0, A, B)
+#         #solve unperturbed system
+#         solmat0 = makeandsolve(x, pars)
+#         #get positions of feasible equilibria
+#         indrows = getfeasrowinds(solmat0)
+#         #get the matrix of feasible equilibria
+#         feas_eq_mat = solmat0[indrows,:]
+#         if size(feas_eq_mat)[1] == 0
+#             continue
+#         end
+#         #pick reference equilibrium
+#         if constr
+#             xstar0 = [1,1]
+#         else
+#             xstar0 = feas_eq_mat[1,:]
+#         end
+#         #store equlibrium we are dealing with
+#         xstari = [1,1]
+#         #initialize polygon area
+#         rprev = []
+#         area = 0
+#         #traverse full 3D space in polar coordinates 
+#         rho = 0
+#         rnew = r0
+#         feasible = true #start with feasible equilibrium always
+#         while feasible  
+#             #make a round about
+#             for i_theta in 1:length(thetavec)
+#                 theta = thetavec[i_theta]
+#                 println("Searching boundary for sim = ", sim, " alpha = ", alpha, " rho = ", rho, " theta = ", theta)
+#                 rnew = r0 .+ pol2cart(theta, rho)
+#                 #form new parameter set 
+#                 parsnew = (alpha, rnew, A, B)
+#                 #get linear approximation of response to perturbation
+#                 xstarlinear = linearresponse(x, parsnew, xstar0, r0)
+#                 solmat = makeandsolve(x, parsnew)
+#                 feasible = anyrowfeasible(solmat)
+#                 #when we hit a boundary, skip iteration
+#                 if feasible == false
+#                     continue
+#                 end
+#                 #identify correct equilibria
+#                 ind_eq_new = identifyequilibrium(xstari, solmat)
+#                 xstari = solmat[ind_eq_new,:]
+#                 #check if there is still a feasible equilibria or not
+#                 feasible = all(xstari .> 0)
+#                 #add sector area if feasibility remains
+#                 if i_theta == 1
+#                     areai = 0
+#                 else
+#                     theta1 = thetavec[i_theta-1]
+#                     theta2 = theta
+#                     areai = getsectorarea(theta1, theta2, rho)
+#                 end
+#                 area += areai
+#                 storexstar = hcat(sim, alpha, abs(pi/4 - theta),#angle(r0, pol2cart(theta, 1)), 
+#                                     theta, 
+#                                     rho, transpose(abs.(r0)), transpose(rnew - r0), transpose(xstari), 
+#                                     transpose(xstar0), transpose(xstarlinear), area)
+#                 open("../data/boundaryportraiteqcons.csv", "a") do io
+#                     writedlm(io, storexstar, ' ')
+#                 end
+#             end
+#             #increase radius
+#             rho += 0.1
+#             #stop simulating when reaching maximum radius
+#             if rho > 1
+#                 feasible = false
+#             end
+#         end
+#     end
+# end
 
-n = 3
+
+#The more general version of the above code
+#the exploration here is good, but I don't recover the analytical results!
+
+n = 2 #start with n = 2 to recover previous results
 @var x[1:n]
-nsim = 2
+rng = MersenneTwister(2)
+nsim = 1
+idrows = 0
+rpertmin = -1
+rpertmax = 1
+grain = 30
 
 for sim in 1:nsim
     #sample parameters
     #get parameters leading to feasibility
-    constr = false
-    alpha = 0
-    r0, A, B = getfeasiblepars(n, alpha, rng)
-    #constr = true
-    #r0, A, B = sampleparameters(n, rng)
-    for alpha in 0:0.5:1
+    #constr = false
+    #alpha = 0  
+    #r0, A, B = getfeasiblepars(n, alpha, rng)
+    constr = true
+    r0, A, B = sampleparameters(n, rng)
+    for alpha in 0:0.1:1
         pars = (alpha, r0, A, B)
         #solve unperturbed system
         solmat0 = makeandsolve(x, pars)
@@ -377,46 +369,53 @@ for sim in 1:nsim
         end
         #store equlibrium we are dealing with
         xstari = repeat([1], n)
-        #initialize polygon area
-        area = 0
-        #traverse full 3D space in polar coordinates 
-        rho = 0
-        rnew = r0
         feasible = true #start with feasible equilibrium always
-        while feasible  
-            #make a round about
-            for i_theta in 1:length(thetavec)
-
-#         for phi in 0:0.15:pi
-#             rho = 0
-#             rnew = r0
-#             feasible = true
-#             #increase magnitud of vector until feasibility is lost
-#             while feasible
-#                 println("Searching boundary for alpha = ", alpha, "theta = ", theta, " phi = ", phi, " rho = ", rho)
-#                 rnew = r0 .+ sph2cart(theta, phi, rho)
-#                 #form new parameter set 
-#                 parsnew = (alpha, rnew, A, B)
-#                 solmat = makeandsolve(x, parsnew)
-#                 #check if there is still a feasible equilibria or not
-#                 feasible = anyrowfeasible(solmat)
-#                 #deal with multiple equilibria in this part, but later###############################
-#                 #interrupt search if domain is too big
-#                 if rho > 5
-#                     feasible = false
-#                 end
-#                 #increase radius
-#                 rho += 0.15 
-#             end
-#             #record r for which feasibility is lost
-#             tosave = hcat(alpha, transpose(rnew-r0))
-#             open("../data/feasibility_boundary3spp.csv", "a") do io
-#                 writedlm(io, tosave, ' ')
-#             end
-#         end
-#     end
+        #generate all perturbations 
+        pertmat = generate_grid(generate_limits(n, rpertmin, rpertmax), grain)
+        cubelimits = sort(unique(abs.(hcat(pertmat...))))
+        nperts = size(pertmat)[1]
+        for pert in 1:nperts
+            global idrows += 1
+            rpert = pertmat[pert, :][1]
+            #determine which cube is this perturbation in
+            # magrpert = sqrt(sum(rpert.^2))
+            # if magrpert >= 1
+            #     continue
+            # end 
+            rpert = pertmat[pert,:][1]
+            rnew = r0 + rpert
+            cubenumber = find_bin(maximum(abs.(rpert)), cubelimits) #the largest component determines the cube the vector lives in
+            #get the difference in angle, and the difference in magnitude
+            dtheta = angle(r0, rnew)
+            drho = norm(rpert)
+            println("Searching boundary for simulation = ", sim, " alpha = ", alpha)
+            parsnew = (alpha, rnew, A, B)
+            solmat = makeandsolve(x, parsnew)
+            nsols = size(solmat)[1]
+            if size(solmat)[1] == 0 #no real solutions even
+                continue
+            else
+                simvec = repeat([sim], n*nsols)
+                nvec = repeat([n], n*nsols)
+                alphavec = repeat([alpha], n*nsols)
+                idrowvec = repeat([idrows], n*nsols)
+                sppid = repeat(collect(1:n), nsols)
+                eqid = repeat(collect(1:nsols), inner = n)
+                rvecs = repeat(rnew - r0, nsols)
+                cubenumbervec = repeat([cubenumber], n*nsols)
+                dthetavec = repeat([dtheta], nsols*n)
+                drhovec = repeat([drho], nsols*n)
+                rho = repeat([])
+                eqvec = vcat(transpose(solmat)...)
+                tosave = hcat(simvec, nvec, alphavec, idrowvec, eqid, rvecs, cubenumbervec, dthetavec, drhovec, sppid, eqvec)
+            end
+            open("../data/cubenumbertest.csv", "a") do io
+                writedlm(io, tosave, ' ')
+            end
+        end
     end
 end
+
 # #plot minimum magnitudes as a function of alpha. Should see an increasing line.
 
 
@@ -495,10 +494,20 @@ end
 
 
 #TODOS
-#   2. Write code to perform the same task with more than 2 species. 
+
+#   2. Check that my simulations also work for more species given asumptions I make. Bin the thetas too!
 #   3. Then drop assumptions sequentially for these cases. Do 5 and 10 species.
 #   4. Do the whole simulations again, but this time the exploration only happens
 #      within the cone. Whenever I hit unfeasible, or established boundary, then stop\
 #      and record the max r for which feasibility is lost.
 #   5. This is scalable to more than 2 spp, since I just have to do |r| in n dimensions.
 #   6. Average over simulations
+
+#more stuff to do: 
+#   1. do the "average orbit". See that it bends in the 1,1 direction
+#   2. check what is the alpha for which the average orbit is most compressed
+#   3. Do it for the cartesian way, so its extendable for multiple species.
+#   4. 
+
+#########################################################################################
+
