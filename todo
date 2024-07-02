@@ -1,0 +1,25 @@
+Plan for today; 
+
+Fill out: 
+1. Problem statement DONE
+2. Response to perturbations DONE
+3. Analytical part DONE
+4. Simulations with all constraints. DONE 
+5. Feasibility with all constraints part. IN PROGRESS	
+	- add the feature to follow only the 1,1 equilibria. maybe by doing: always check whether the closeset equilibria to 1,1 is feasible, disregard the rest. Or follow the (1,1) equilibria.
+6. Think of a figure to see the radius response (average, max, min). Do the simulations again but this time with the new code using hyperspheres. DONE
+
+
+#############################################################################################
+
+ 	- add the feature to follow only the 1,1 equilibria. maybe by doing: always check whether the closeset equilibria to 1,1 is feasible, disregard the rest. Or follow the (1,1) equilibria.
+ 	- Do analytics for one species DONE
+ 	- Run all simulations with all constraints and several species
+ 	- Only relax tractability constraints in the supplement
+ 	- Add analyitical curve to small and homogeneous perturbations in 2 spp
+ 	- Re-write main text to reflect changes in the narrative.
+ 	- Write code of the things I want to do that is clean, ready for Zach.
+ 	- Once I find the radius of max feasibility, run simulations with homogeneous points around the circle instead of random.
+ 	- Run simulations with same alphas: collect(0:0.05:0.95), skip alpha = 1 since the matrix would be singular
+ 	- Do all the work for 1, 2, 3, 4 species. But only plot the more than 2 spp lines where it can be seen, in the lines of avmag, area, and area vs avmag.
+ 	

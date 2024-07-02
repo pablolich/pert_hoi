@@ -40,7 +40,7 @@ datgen = read.table("../data/simulation2sppgen.csv")
 colnames(datgen) = c("sim", "n", "alpha", "idrowvec", "eqid", "rvec",
                          "dtheta", "drho", "sppid", "xeq")
 
-datagenwide = dat2sppgen %>%
+datagenwide = datgen %>%
   mutate(rowsid = idrowvec + eqid) %>% 
   mutate(binrho = cut(drho, seq(min(drho), max(drho), (max(drho)-min(drho))/20), 
                       right = FALSE),
