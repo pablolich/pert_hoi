@@ -9,7 +9,8 @@ nmax = 3
 nsim = 2
 #set seed for reproducibility
 rng = MersenneTwister(2)
-rhovec = 10 ./ collect(1:1:1000)
+rhovec = 10 ./ collect(1:1000:100000)
+global full_feasible = false
 for n in 2:nmax
     #specific number of perturbations given system dimension need
     nperts = 10^n
@@ -21,19 +22,23 @@ for n in 2:nmax
     for sim in 1:nsim
         #sample parameters with appropriate constraints
         r0, A, B = sampleparameters(n, rng, constrain_type) #CAN I SAMPLE DIFFERENT RS PER SPP?
-        #loop through all perturbation magnitudes
+        if sim != 43
+            continue
+        end
+        #loop through all alphas for simulation i
         for alpha in 0:0.1:0.99
-            #loop through all perturbations on this shell
-            full_feasible = false
-            for rho in rhovec
+            rhoind = 1
+            while !full_feasible
+                #decrease radius until fully feasible
+                rho = rhovec[rhoind]
                 #generate all perturbations on surface of hypershpere of radius rho
                 perts_rho = points_hypersphere(n, rho, nperts) #ADD OPTION OF N=2, ORDERED PERTURBATIONS
-                #for this shell of perturbations, loop through all values of alphas
+                #loop through all perturbations on this shell
                 for pert in 1:nperts 
                     #get specific perturbation and build new vector
                     pert_rho_i = perts_rho[pert,:]
                     rpert = r0 + pert_rho_i
-                    println("Perturbing for system ", sim, ", n  = ", n, ", radius = ", rho, 
+                    println("Perturbing for system ", sim, ", n  = ", n, ", rho = ", rho, 
                             ",  alpha = ", alpha, " pert: ", pert, " of ", nperts)
                     #form parameters of perturbed system with alpha value
                     pars = (alpha, rpert, A, B)
@@ -48,21 +53,26 @@ for n in 2:nmax
                         println("not feasible solutions, breaking")
                         break
                     else
-                        continue
-                    end
-                    if pert == nperts
-                        println("found fully feasible, breaking")
-                        full_feasible = true
+                        if pert == nperts
+                            println("found fully feasible")
+                            #declare feasible if all perturbations traversed yielded feasible
+                            global full_feasible = true
+                        end
                     end
                 end
+                #see if all perturbations werer traversed
                 if full_feasible == true
+                    print("saving data")
                     #save data for the fully feasible orbit
-                    tosave = [sim, n, alpha, rho]
-                    open("../data/feasibility_boundary.csv", "a") do io
+                    tosave = [sim n alpha rho]
+                    open("../data/feasibility_boundarysim43.csv", "a") do io
                         writedlm(io, tosave, ' ')
                     end
+                    global full_feasible = false
+                    rhoind = 1
                     break
                 end
+                rhoind += 1
             end
         end
     end
