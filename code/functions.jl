@@ -8,7 +8,7 @@ using Random
 using JuMP
 using Ipopt
 using Kronecker
-using Plots
+using Plots, Colors
 using JLD
 
 
@@ -245,13 +245,13 @@ function select_row(matrix::Matrix{Float64})
     
     # Step 2: If positive rows exist, select the row with the minimum element
     if length(positive_rows) > 0
-        min_elem_row = positive_rows[1]
-        for r in positive_rows
-            if minimum(r) < minimum(min_elem_row)
-                min_elem_row = r
-            end
-        end
-        return min_elem_row
+        # min_elem_row = positive_rows[1]
+        # for r in positive_rows
+        #     if minimum(r) < minimum(min_elem_row)
+        #         min_elem_row = r
+        #     end
+        # end
+        return positive_rows #min_elem_row
     end
     
     # Step 3: Compute the norm 2 distance to the vector of ones if no all-positive row found
@@ -261,7 +261,7 @@ function select_row(matrix::Matrix{Float64})
     # Step 4: Find the row with the minimum norm 2 distance
     min_index = argmin(norms)
     
-    return matrix[min_index, :]
+    return [matrix[min_index, :]]
 end
 
 """
@@ -291,30 +291,24 @@ function perturbondisc(rho, pars, n, nperts, x)
         #get specific perturbation
         pert_rho_i = perts_rho[pert,:]
         #form parameters of perturbed system with alpha value
-        pars[2] .+= pert_rho_i      
+        rpert = pars[2] + pert_rho_i
+        parsnew = (pars[1], rpert, pars[3], pars[4])
         #solve system (get real solutions)
-        solmat = makeandsolve(x, pars)
+        solmat = makeandsolve(x, parsnew)
         nsols = length(solmat)
         #check if matrix is empty
         if nsols == 0
-            equilibrium = repeat([-Inf], n) #treat complex solutions as negative ones. 
+            equilibria = vcat(equilibria, repeat([-Inf], n)') #treat complex solutions as negative ones. 
         else
             #get xmin from selected equilibrium
-            #equilibrium = select_row(solmat)
-            inds = getfeasrowinds(solmat)
-            nsolspos = length(inds)
-            equilibrium = solmat[inds, :]
-            #add equilibrium/a to matrix
-            if nsolspos == 1
-                equilibria = vcat(equilibria, equilibrium)
-            else
-                for i in 1:nsolspos
-                    equilibriumi = equilibrium[i,:]
-                    equilibria = vcat(equilibria, equilibriumi')
-                end
+            equilibrium = select_row(solmat)
+            #inds = getfeasrowinds(solmat)
+            nsols = length(equilibrium)
+            for i in 1:nsols
+                equilibriumi = equilibrium[i]
+                equilibria = vcat(equilibria, equilibriumi')
             end
         end
-        #equilibria = vcat(equilibria, equilibrium')
     end
     return equilibria
 end
@@ -350,8 +344,12 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
         #if solution is found, check that no other solutions exist for smaller rs
         println("minx = ", xmin, " Interval: ", [rho1, rho2])
         if abs(rho1 - rho2) < tol
-            for rho in range(rhob, tol, 10)
+            for rho in range(rhob, tol, 40)
                 xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
+                #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
+                if xcheck < -tol
+                    xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
+                end
                 println("Checking if feasibility breaks earlier: ", rho, " minimum x: ", xcheck)
                 #if at some point x becomes negative again, then another 0 exists
                 if xcheck < -tol || xcheck == -Inf
@@ -367,3 +365,63 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
     end
     return rhob
 end
+
+function generate_equispaced_vector(a, b, middle, n)
+    if n % 2 == 0
+        error("n must be odd to have a single middle element.")
+    end
+    
+    half_n = (n - 1) ÷ 2  # Number of elements on each side of the middle element
+
+    # Generate the sequences
+    left_part = range(a, stop=middle, length=half_n + 1)
+    right_part = range(middle, stop=b, length=half_n + 1)[2:end]  # Exclude the middle element from right part to avoid duplication
+    
+    equispaced_vector = vcat(left_part, right_part)
+    return equispaced_vector
+end
+
+"""
+check result visually
+"""
+function checkresultvisually(rhomax, pars, n, nperts, x)
+    rho0 = 0.8rhomax
+    rho1 = 1.2*rhomax
+    rhovec = generate_equispaced_vector(rho0, rho1, rhomax, 9)
+    pertdiscmat = Matrix{Float64}(undef, 0, 3)
+    for i in rhovec
+        point_perts = perturbondisc(i, pars, n, nperts, x)
+        rhoveccol = repeat([i], size(point_perts, 1))
+        tostore = hcat(point_perts, rhoveccol)
+        println(size(tostore))
+        pertdiscmat = vcat(pertdiscmat, tostore)
+    end
+    x = pertdiscmat[:, 1]  # First column
+    y = pertdiscmat[:, 2]  # Second column
+    color_values = pertdiscmat[:, 3]  # Third column
+    scatter(x, y, marker_z=color_values, c=:viridis, legend=false, 
+            xlabel="X", ylabel="Y", title="Scatter Plot Colored by Third Column"
+            #xlims = (0, 3), 
+            #ylims = (0, 5)
+            )
+end
+
+# npertbase = 10
+# n = 2
+# nperts = npertbase^n
+# #define variables for polynomial construction
+# @var x[1:n]
+# rng = MersenneTwister(2)
+# constrain_type = 1
+# for i in 1:26
+#     sampleparameters(n, rng, constrain_type)
+# end
+# r0, A, B = sampleparameters(n, rng, constrain_type)
+# alpha = 0.8
+# pars = (alpha, r0, A, B)
+# # #parsloaded = load("../data/sim43pars.jld")
+# # #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])
+# rmax = findmaxperturbation(0, 10, pars, n, nperts, x, 1e-9)
+# # #rmax = 1.1
+# #checkresultvisually(rmax, pars, n, nperts, x)
+# plotperturbations(perturbondisc(rmax, pars, n, nperts, x))
