@@ -245,12 +245,6 @@ function select_row(matrix::Matrix{Float64})
     
     # Step 2: If positive rows exist, select the row with the minimum element
     if length(positive_rows) > 0
-        # min_elem_row = positive_rows[1]
-        # for r in positive_rows
-        #     if minimum(r) < minimum(min_elem_row)
-        #         min_elem_row = r
-        #     end
-        # end
         return positive_rows #min_elem_row
     end
     
@@ -344,7 +338,7 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
         #if solution is found, check that no other solutions exist for smaller rs
         println("minx = ", xmin, " Interval: ", [rho1, rho2])
         if abs(rho1 - rho2) < tol
-            for rho in range(rhob, tol, 40)
+            for rho in range(rhob, tol, 10)
                 xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
                 #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
                 if xcheck < -tol
@@ -366,46 +360,6 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
     return rhob
 end
 
-function generate_equispaced_vector(a, b, middle, n)
-    if n % 2 == 0
-        error("n must be odd to have a single middle element.")
-    end
-    
-    half_n = (n - 1) ÷ 2  # Number of elements on each side of the middle element
-
-    # Generate the sequences
-    left_part = range(a, stop=middle, length=half_n + 1)
-    right_part = range(middle, stop=b, length=half_n + 1)[2:end]  # Exclude the middle element from right part to avoid duplication
-    
-    equispaced_vector = vcat(left_part, right_part)
-    return equispaced_vector
-end
-
-"""
-check result visually
-"""
-function checkresultvisually(rhomax, pars, n, nperts, x)
-    rho0 = 0.8rhomax
-    rho1 = 1.2*rhomax
-    rhovec = generate_equispaced_vector(rho0, rho1, rhomax, 9)
-    pertdiscmat = Matrix{Float64}(undef, 0, 3)
-    for i in rhovec
-        point_perts = perturbondisc(i, pars, n, nperts, x)
-        rhoveccol = repeat([i], size(point_perts, 1))
-        tostore = hcat(point_perts, rhoveccol)
-        println(size(tostore))
-        pertdiscmat = vcat(pertdiscmat, tostore)
-    end
-    x = pertdiscmat[:, 1]  # First column
-    y = pertdiscmat[:, 2]  # Second column
-    color_values = pertdiscmat[:, 3]  # Third column
-    scatter(x, y, marker_z=color_values, c=:viridis, legend=false, 
-            xlabel="X", ylabel="Y", title="Scatter Plot Colored by Third Column"
-            #xlims = (0, 3), 
-            #ylims = (0, 5)
-            )
-end
-
 # npertbase = 10
 # n = 2
 # nperts = npertbase^n
@@ -413,11 +367,11 @@ end
 # @var x[1:n]
 # rng = MersenneTwister(2)
 # constrain_type = 1
-# for i in 1:26
+# for i in 1:42
 #     sampleparameters(n, rng, constrain_type)
 # end
 # r0, A, B = sampleparameters(n, rng, constrain_type)
-# alpha = 0.8
+# alpha = 0.81
 # pars = (alpha, r0, A, B)
 # # #parsloaded = load("../data/sim43pars.jld")
 # # #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])

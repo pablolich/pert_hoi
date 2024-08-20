@@ -5,8 +5,8 @@ library(tidyverse)
 ###############################################################################
 
 #load data
-datarbitrarypertssim43 = read.table("../data/simulations_arbitrary_perturbationssim1.csv")
-colnames(datarbitrarypertssim43) = c("n", "sim", "rho", "ismax",
+datarbitrarypertssim43 = read.table("../data/simulations_arbitrary_perturbationssim43.csv")
+colnames(datarbitrarypertssim43) = c("n", "sim", "rho",
                                      "alpha", "pertid", "sppid",
                                      "r0", "rpert", "dtheta", "xstar", "xstarlin")
 
@@ -131,7 +131,6 @@ dataxalpha3 = datamerged %>% filter(alpha == 0.81) %>%
   select(xstar1, xstar2, set) %>% 
   rename(x = xstar1,
          y = xstar2)
-
 write.table(dataxalpha1, 
             file = "../data/dataxalpha1.dat", sep = "\t", 
             row.names = F,
@@ -148,3 +147,65 @@ write.table(dataxalpha3,
             quote = FALSE)
 
 
+##############################################################################
+#adding the max feasibility domains
+##############################################################################
+
+feasdomains = read.table("../data/domainstodraw.csv")
+colnames(feasdomains) = c("alpha", "x1", "x2")
+
+feasdomainsalpha1 = feasdomains %>% filter(alpha == 0.01) %>% select(x1, x2)
+feasdomainsalpha2 = feasdomains %>% filter(alpha == 0.61) %>% select(x1, x2) %>%
+  filter(x2 < 5)
+feasdomainsalpha3 = feasdomains %>% filter(alpha == 0.81) %>% select(x1, x2) %>% 
+  filter(x2 < 3.5)
+
+write.table(feasdomainsalpha1,
+            file = "../data/feasdomainsalpha1.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)
+write.table(feasdomainsalpha2,
+            file = "../data/feasdomainsalpha2.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)
+write.table(feasdomainsalpha3,
+            file = "../data/feasdomainsalpha3.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)
+
+get_circle_points <- function(n, r) {
+  # Generate sequence of angles
+  angles <- seq(0, 2 * pi, length.out = n + 1)[-1]
+  
+  # Calculate x and y coordinates
+  x_coords <- r * cos(angles)
+  y_coords <- r * sin(angles)
+  
+  # Combine x and y into a data frame
+  points <- data.frame(x = x_coords, y = y_coords)
+  
+  return(points)
+}
+
+domainralpha1 = get_circle_points(100, 1.1435644014272839)
+domainralpha2 = get_circle_points(100, 1.1450265301391482)
+domainralpha3 = get_circle_points(100, 0.9141538545590324)
+
+  write.table(domainralpha1,
+            file = "../data/domainralpha1.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)
+write.table(domainralpha2,
+            file = "../data/domainralpha2.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)
+write.table(domainralpha3,
+            file = "../data/domainralpha3.dat",
+            sep = "\t",
+            row.names = F,
+            quote = F)

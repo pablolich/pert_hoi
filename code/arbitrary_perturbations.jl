@@ -7,12 +7,12 @@ include("functions.jl")
 npertbase = 10
 nmax = 2
 #set seed for reproducibility
-rng = MersenneTwister(1)
+rng = MersenneTwister(2)
 #set number of simulations
-nsim = 1
+nsim = 43
 #set type of constraints for simulations
 constrain_type = 1
-rhovec = collect(1e-6:0.15:1.5)
+rhovec = collect(0.11:0.2:1.5)
 for n in 2:nmax
     #specific number of perturbations given system dimension need
     nperts = npertbase^n
@@ -24,25 +24,16 @@ for n in 2:nmax
     for sim in 1:nsim
         #sample parameters with appropriate constraints
         r0, A, B = sampleparameters(n, rng, constrain_type) #CAN I SAMPLE DIFFERENT RS PER SPP?
-        # if sim !=43
-        #     continue
-        # end
+        if sim != 43
+            continue
+        end
         #loop through all perturbation magnitudes
         for alpha in 0.01:0.1:0.99 #WHEN ALPHA IS 0, THE SYSTEM CAN BE SOLVED VERY FAST WITH MATRIX INVERSION
             #get maximum radius for feasibility
             println("Searching maximum radius for sim ", sim, " alpha: ", alpha)
             pars0 = (alpha, r0, A, B)
-            rhomax = findmaxperturbation(0, 10, pars0, n, nperts, x, 1e-9)
-            #append rmax to vector of rs
-            append!(rhovec, rhomax)
-            ismax = 0
             #loop through all perturbations on this shell
             for rho in rhovec
-                if rho == rhomax
-                    ismax = 1
-                else
-                    ismax = 0
-                end
                 #generate all perturbations on surface of hypershpere of radius rho
                 perts_rho = points_hypersphere(n, rho, nperts)
                 #for this shell of perturbations, loop through all values of alphas
@@ -80,14 +71,13 @@ for n in 2:nmax
                         alphavec = repeat([alpha], n)
                         sppid = collect(1:n)
                         rhovec = repeat([rho], n)
-                        ismaxvec = repeat([ismax], n)
                         pertvec = repeat([pert], n)
                         dthetavec = repeat([dtheta], n)
-                        tosave = hcat(nvec, simvec, rhovec, ismaxvec,
+                        tosave = hcat(nvec, simvec, rhovec,
                                       alphavec, pertvec, sppid, r0, rpert,
                                       dthetavec, xstar, xstarlinear)
                         #save data
-                        open("../data/simulations_arbitrary_perturbationssim1.csv", "a") do io
+                        open("../data/simulations_arbitrary_perturbationssim43.csv", "a") do io
                             writedlm(io, tosave, ' ')
                         end
                     end
