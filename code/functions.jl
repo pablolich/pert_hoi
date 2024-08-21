@@ -336,7 +336,6 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
         #modify interval depending on wehter the minimum is negative or positive
         rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
         #if solution is found, check that no other solutions exist for smaller rs
-        println("minx = ", xmin, " Interval: ", [rho1, rho2])
         if abs(rho1 - rho2) < tol
             for rho in range(rhob, tol, 10)
                 xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
@@ -344,7 +343,6 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
                 if xcheck < -tol
                     xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
                 end
-                println("Checking if feasibility breaks earlier: ", rho, " minimum x: ", xcheck)
                 #if at some point x becomes negative again, then another 0 exists
                 if xcheck < -tol || xcheck == -Inf
                     #restart search from a different interval
