@@ -8,8 +8,8 @@ nmax = 4
 #set number of simulations
 nsim = 100
 #set seed for reproducibility
-rng = MersenneTwister(2)
-for n in 2:nmax
+rng = MersenneTwister(3)
+for n in 4:-1:2
     #specific number of perturbations given system dimension need
     nperts = npertbase^n
     #define variables for polynomial construction
@@ -25,7 +25,7 @@ for n in 2:nmax
             pars = (alpha, r0, A, B)
             rmax = findmaxperturbation(0, 10, pars, n, nperts, x, 1e-9)
             tosave = [sim n alpha rmax]
-            open("../data/feasibility_boundary_radius_2.csv", "a") do io
+            open("../data/feasibility_boundary_radius_3.csv", "a") do io
                 writedlm(io, tosave, ' ')
             end
             # if n == 2 && sim == 43
