@@ -10,7 +10,7 @@ colnames(dat) = c("sim", "n", "alpha", "rmax")
 
 dataplot = dat %>% 
   group_by(n, alpha) %>% 
-  summarise(rmean = mean(rmax))
+  summarise(rmean = median(rmax))
 
 ggplot(dataplot)+
   geom_point(aes(x = alpha, y = rmean,

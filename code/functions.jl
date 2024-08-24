@@ -243,7 +243,7 @@ function select_row(matrix::Matrix{Float64})
         end
     end
     
-    # Step 2: If positive rows exist, select the row with the minimum element
+    # Step 2: If positive rows exist, return them
     if length(positive_rows) > 0
         return positive_rows #min_elem_row
     end
@@ -281,9 +281,13 @@ function perturbondisc(rho, pars, n, nperts, x)
     #generate all perturbations on surface of hypershpere of radius rho
     perts_rho = points_hypersphere(n, rho, nperts)
     equilibria = Matrix{Float64}(undef, 0, n)
-    for pert in 1:nperts
+    pert = 1
+    feasiblesol = true
+    while pert < nperts && feasiblesol
         #get specific perturbation
         pert_rho_i = perts_rho[pert,:]
+        #increase counter
+        pert += 1
         #form parameters of perturbed system with alpha value
         rpert = pars[2] + pert_rho_i
         parsnew = (pars[1], rpert, pars[3], pars[4])
@@ -292,16 +296,20 @@ function perturbondisc(rho, pars, n, nperts, x)
         nsols = length(solmat)
         #check if matrix is empty
         if nsols == 0
-            equilibria = vcat(equilibria, repeat([-Inf], n)') #treat complex solutions as negative ones. 
+            equilibria = vcat(equilibria, repeat([-Inf], n)') #treat complex solutions as negative.
+            feasiblesol = false #we look for radii subtending only positive equilibria
         else
             #get xmin from selected equilibrium
             equilibrium = select_row(solmat)
+            #feasiblesol = all(collect(Iterators.flatten(equilibrium)) .> 0)
+            #println("Perturbation: ", pert, " equilibrium: ", equilibrium)
             #inds = getfeasrowinds(solmat)
             nsols = length(equilibrium)
             for i in 1:nsols
                 equilibriumi = equilibrium[i]
                 equilibria = vcat(equilibria, equilibriumi')
             end
+
         end
     end
     return equilibria
@@ -329,26 +337,27 @@ get maximum perturbation on the growth rates retaining feasibility
 """
 function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
     while abs(rho1 - rho2) > tol
+        println("[", rho1, ",", rho2, "]")
         #find the middle point of current interval
         global rhob = bisect(rho1, rho2)
         #perform disc perturbation of radius rb, and check the minimum x obtained around the disc
         xmin = minimum(perturbondisc(rhob, pars, n, nperts, x))
+        println("xmin = ", xmin)
         #modify interval depending on wehter the minimum is negative or positive
         rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
         #if solution is found, check that no other solutions exist for smaller rs
         if abs(rho1 - rho2) < tol
             for rho in range(rhob, tol, 10)
                 xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
+                println("Backward checking: ", rho, "x = ", xcheck)
                 #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
                 if xcheck < -tol
                     xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
                 end
                 #if at some point x becomes negative again, then another 0 exists
                 if xcheck < -tol || xcheck == -Inf
-                    #restart search from a different interval
-                    xmin = tol + 1
                     rho1 = 0
-                    rho2 = rho
+                    rho2 = rho  
                     break
                 end
             end
@@ -358,22 +367,22 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
     return rhob
 end
 
-# npertbase = 10
-# n = 2
-# nperts = npertbase^n
-# #define variables for polynomial construction
-# @var x[1:n]
-# rng = MersenneTwister(2)
-# constrain_type = 1
+npertbase = 10
+n = 2
+nperts = npertbase^n
+#define variables for polynomial construction
+@var x[1:n]
+rng = MersenneTwister(2)
+constrain_type = 1
 # for i in 1:42
 #     sampleparameters(n, rng, constrain_type)
 # end
-# r0, A, B = sampleparameters(n, rng, constrain_type)
-# alpha = 0.81
-# pars = (alpha, r0, A, B)
-# # #parsloaded = load("../data/sim43pars.jld")
-# # #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])
-# rmax = findmaxperturbation(0, 10, pars, n, nperts, x, 1e-9)
-# # #rmax = 1.1
-# #checkresultvisually(rmax, pars, n, nperts, x)
-# plotperturbations(perturbondisc(rmax, pars, n, nperts, x))
+r0, A, B = sampleparameters(n, rng, constrain_type)
+alpha = 0.1
+pars = (alpha, r0, A, B)
+# #parsloaded = load("../data/sim43pars.jld")
+# #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])
+rmax = findmaxperturbation(0, 30, pars, n, nperts, x, 1e-9)
+#rmax = 16
+#checkresultvisually(rmax, pars, n, nperts, x)
+plotperturbations(perturbondisc(rmax, pars, n, nperts, x))
