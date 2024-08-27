@@ -7,10 +7,9 @@ dat3 = read.table("../data/feasibility_boundary_radius_3.csv")
 dat = rbind(dat1, dat2, dat3)
 
 colnames(dat) = c("sim", "n", "alpha", "rmax")
-
 dataplot = dat %>% 
   group_by(n, alpha) %>% 
-  summarise(rmean = median(rmax))
+  mutate(rmean = mean(rmax))
 
 ggplot(dataplot)+
   geom_point(aes(x = alpha, y = rmean,

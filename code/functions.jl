@@ -354,7 +354,7 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
                 if xcheck < -tol
                     xcheck = minimum(perturbondisc(rho, pars, n, nperts, x))
                 end
-                #if at some point x becomes negative again, then another 0 exists
+                #if at some point x becomes negative or complex again, then another 0 exists
                 if xcheck < -tol || xcheck == -Inf
                     rho1 = 0
                     rho2 = rho  
