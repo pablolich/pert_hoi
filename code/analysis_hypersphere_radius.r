@@ -14,3 +14,4 @@ dataplot = dat %>%
 ggplot(dataplot)+
   geom_point(aes(x = alpha, y = rmean,
                  color = as.factor(n)))
+ 

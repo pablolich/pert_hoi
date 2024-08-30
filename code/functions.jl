@@ -367,22 +367,40 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
     return rhob
 end
 
-npertbase = 10
-n = 2
-nperts = npertbase^n
-#define variables for polynomial construction
-@var x[1:n]
-rng = MersenneTwister(2)
-constrain_type = 1
-# for i in 1:42
-#     sampleparameters(n, rng, constrain_type)
-# end
-r0, A, B = sampleparameters(n, rng, constrain_type)
-alpha = 0.1
-pars = (alpha, r0, A, B)
-# #parsloaded = load("../data/sim43pars.jld")
-# #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])
-rmax = findmaxperturbation(0, 30, pars, n, nperts, x, 1e-9)
-#rmax = 16
-#checkresultvisually(rmax, pars, n, nperts, x)
-plotperturbations(perturbondisc(rmax, pars, n, nperts, x))
+# npertbase = 10
+# n = 2
+# nperts = npertbase^n
+# #define variables for polynomial construction
+# @var x[1:n]
+# rng = MersenneTwister(2)
+# constrain_type = 1
+# # for i in 1:42
+# #     sampleparameters(n, rng, constrain_type)
+# # end
+# r0, A, B = sampleparameters(n, rng, constrain_type)
+# alpha = 0.1
+# pars = (alpha, r0, A, B)
+# # #parsloaded = load("../data/sim43pars.jld")
+# # #pars = (alpha, parsloaded["r0"], parsloaded["A"], parsloaded["B"])
+# rmax = findmaxperturbation(0, 30, pars, n, nperts, x, 1e-9)
+# #rmax = 16
+# #checkresultvisually(rmax, pars, n, nperts, x)
+# plotperturbations(perturbondisc(rmax, pars, n, nperts, x))
+
+"""
+function to analyze the proportion of feasible states as the radius increases from 1 to rinf
+"""
+function proportion_of_positive_rows(matrix::AbstractMatrix{T}) where T
+    # Ensure the matrix is not empty
+    if size(matrix, 1) == 0
+        return 0.0
+    end
+    
+    # Calculate the number of rows where all elements are positive
+    num_positive_rows = length(getfeasrowinds(matrix))
+    
+    # Calculate the proportion
+    proportion = num_positive_rows / size(matrix, 1)
+    
+    return proportion
+end

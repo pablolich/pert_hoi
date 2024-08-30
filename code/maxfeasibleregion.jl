@@ -9,6 +9,8 @@ nmax = 4
 nsim = 100
 #set seed for reproducibility
 rng = MersenneTwister(3)
+tol = 1e-9
+
 for n in 4:-1:2
     #specific number of perturbations given system dimension need
     nperts = npertbase^n
@@ -23,7 +25,7 @@ for n in 4:-1:2
         for alpha in 0.01:0.1:0.99
             println("Searching for n = ", n, " sim = ", sim, " alpha: ", alpha)
             pars = (alpha, r0, A, B)
-            rmax = findmaxperturbation(0, 10, pars, n, nperts, x, 1e-9)
+            rmax = findmaxperturbation(0, 10, pars, n, nperts, x, tol)
             tosave = [sim n alpha rmax]
             open("../data/feasibility_boundary_radius_3.csv", "a") do io
                 writedlm(io, tosave, ' ')
