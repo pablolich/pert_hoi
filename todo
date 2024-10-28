@@ -27,3 +27,11 @@ Fill out:
 #### Aug 01,2024
 
 	I have to write julia code to check if the obtain radius is a critical one, by seeing the orbits for radii around the candidate critical
+
+#### Sep 20,2024
+
+	I see an enrichment of feasible states in the regime of high-alpha, high-r as n increases. As such, I should run simulations where I increase n for a fixed alpha and r, to see that the proportion of feasible states increases. 
+
+#### Oct 27,2024
+
+	Back to work. 
