@@ -1,3 +1,5 @@
+include("functions.jl")
+
 #Generates data to plot average feasibility critical radius 
 #for a given n (number of species) and alpha (HOIs strength).
 
@@ -15,6 +17,9 @@ nsim = 2#1000
 tol = 1e-9
 npointsbeyond = 10
 rhobeyond = 1.5
+#random seed
+rng = MersenneTwister(1)
+
 
 for sim in 1:nsim #perform many replicates
     for n in 2:nmax #loop through system sizes
@@ -23,7 +28,7 @@ for sim in 1:nsim #perform many replicates
         #sample parameters
         r0, A, B = sampleparameters(n, rng, constrain_type)
         #load/sample the vector of perturbations (eventually load them)
-        perturbations = points_hypersphere(n, 1, nperturbations)
+        perturbations = points_hypersphere(n, 1.0, nperturbations)
         for alpha in alphavec #loop through HOI strength
             #form list of parameters for current simulation
             pars = (alpha, r0, A, B)

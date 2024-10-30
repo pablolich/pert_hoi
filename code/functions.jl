@@ -1,3 +1,13 @@
+using HomotopyContinuation
+using LinearAlgebra
+using DelimitedFiles
+using Statistics #calculate mean()
+using Random
+using JuMP
+using Ipopt
+using Kronecker
+using Plots, Colors
+
 #############################################################################################
 #############################################################################################
 #############################################################################################
@@ -25,19 +35,24 @@ end
 """
 get the closest (in the frobenious norm sense) bistochastic matrix to a given one
 """
+
 function getclosestbistochastic(A, n)
-    #get matrices of  constraints
+    # Get matrices of constraints
     rowconsmat = buildrowconstraintmat(n)
     colconsmat = buildcolconstraintmat(n)
-    consvec = repeat([1], n)
-    #perform optimization
+    consvec = repeat([1.0], n)  # Ensure it's a Float vector for consistency
+
+    # Perform optimization with suppressed output
     model = Model(Ipopt.Optimizer)
+    set_optimizer_attribute(model, "print_level", 0)  # Suppress output
     @variable(model, x[1:n^2])
     @objective(model, Min, sqrt(sum((vec(A) .- x).^2)))
     @constraint(model, rowconsmat * x .== consvec)
     @constraint(model, colconsmat * x .== consvec)
+
     optimize!(model)
-    #get result in matrix form
+
+    # Get result in matrix form
     result = reshape([value(x[i]) for i in 1:n^2], n, n)
     return result
 end
@@ -107,13 +122,13 @@ end
 """
 get matrix with real solutions of system of polynomials
 """
-function makeandsolve(x, pars)
+function makeandsolve(x, pars, n)
    #make and solve new system
    syst = System(buildglvhoi(pars, x))
    res = solve(syst ./ x, compile = false)
    solvecs = real_solutions(res)
    if nreal(res) == 0
-       solmat = Array{Float64}(undef, 0, 0)
+       solmat = Matrix{Float64}(undef, 0, n)
    else
        solmat = mapreduce(permutedims, vcat, solvecs)
    end
@@ -182,20 +197,25 @@ function closest_row(vector::AbstractVector, matrix::Matrix{Float64})
 end
 
 """
-given all the real solutions to a system of polynomials, and a target vector: 
-1. if follow == true, then return the solution that is closest to the target vector
-2. if follow == false return all the positive rows.
-if the selected row(s) either the closest to target or all positve rows are negative or 
-empty, then return nothing, since no positive rows exists.
+Given all the real solutions to a system of polynomials and a target vector:
+1. If follow == true, then return the solution that is closest to the target vector.
+2. If follow == false, return all the positive rows.
+If the selected row(s) are negative or empty, then return nothing.
 """
 function select_row(matrix::Matrix{Float64}, 
-                    targetsolution::AbstractVector, follow)
+                    targetsolution::AbstractVector, 
+                    follow::Bool)
+
     nspp = size(matrix, 2)
-    if follow == true
-        #select the closest equilibrium to the targetsolution
-        return closest_row(targetsolution, matrix)
+    
+    if follow
+        # Select the closest equilibrium to the target solution
+        closest_index = closest_row(targetsolution, matrix)
+        return matrix[closest_index, :]
+        
     else
         selected_rows = []
+
         # Step 1: Collect all rows with all positive entries
         for row in 1:size(matrix, 1)
             if all(matrix[row, :] .> 0)
@@ -204,71 +224,71 @@ function select_row(matrix::Matrix{Float64},
         end
         
         # Step 2: If positive rows exist, return them
-        if length(selected_rows) > 0
-            return selected_rows #min_elem_row
+        if !isempty(selected_rows)
+            return selected_rows
         else 
-            return repeat(-1, nspp)
+            return nothing  # Return nothing if no positive rows are found
         end
-        
     end
 end
 
-"""
-perform a disc perturbation of the growthrate in pars of radius rho, and get
-the equilibrium responses after perturbation. when interrupt == true the programm will stop
-whenever there is a perturbation generating any non-feasible solutions
-"""
-function perturbondisc(rho, pars, n, nperts, x, interrupt, perturbation_vec, target_equlibria)
-    #project a vector of perturbations onto a sphere of radius rho
-    perts_rho = rho*perturbation_vec
-    equilibria = Matrix{Float64}(undef, 0, n)
-    pert = 1
-    feasiblesol = true
-    while pert < nperts
-        #get specific perturbation
-        pert_rho_i = perts_rho[pert,:]
-        #get the equilibrium achieved for the perturbation with a slightly smaller radius
-        target_equilibrium = target_equilibria[pert, :]
-        #increase counter
-        pert += 1
-        print(print("\e[A\e[2K"))
-        println("Perturbation number: ", pert,"/", nperts, " n = ", n)
-        #form parameters of perturbed system with alpha value
-        rpert = pars[2] + pert_rho_i
-        parsnew = (pars[1], rpert, pars[3], pars[4])
-        #solve system (get real solutions)
-        solmat = makeandsolve(x, parsnew)
-        nsols = length(solmat)
-        nfeas_sols = length(getfeasrowinds(solmat))
-        if interrupt == true 
-            #user would like to interrupt search when it fails to find a feasible equilibrium:
-            if nsols == 0 || nfeas_sols == 0 
-                #no feasible or real eq for a given perturbation
-                println("Condition has been fullfilled with interrupt = ", interrupt, 
-                        " and n feas sols = ", nfeas_sols)
-                return equilibria
-            end
-        else
-            #user would like to carry all perturbation regardless of sign
-            if nsols == 0 #only complex solutions
-            equilibria = vcat(equilibria, repeat([-Inf], n)') #treat complex solutions as negative.
-            feasiblesol = false #we look for radii subtending only positive equilibria
-            elseif nfeas_sols == 0 #no feasible solutions
-                equilibrium = select_row(solmat)
-                equilibria = vcat(equilibria, equilibrium[1]')
-                feasiblesol = false
-            else #one or more feasible solutions
-                #get xmin from selected equilibrium
-                equilibrium = select_row(solmat)
-                nsols = length(equilibrium)
-                for i in 1:nsols
-                    equilibriumi = equilibrium[i]
-                    equilibria = vcat(equilibria, equilibriumi')
-                end
-        end
-    end
-    return equilibria
-end
+# """
+# perform a disc perturbation of the growthrate in pars of radius rho, and get
+# the equilibrium responses after perturbation. when interrupt == true the programm will stop
+# whenever there is a perturbation generating any non-feasible solutions
+# """
+# function perturbondisc(rho, pars, n, nperts, x, interrupt, perturbation_vec, target_equlibria)
+#     #project a vector of perturbations onto a sphere of radius rho
+#     perts_rho = rho*perturbation_vec
+#     equilibria = Matrix{Float64}(undef, 0, n)
+#     pert = 1
+#     feasiblesol = true
+#     while pert < nperts
+#         #get specific perturbation
+#         pert_rho_i = perts_rho[pert,:]
+#         #get the equilibrium achieved for the perturbation with a slightly smaller radius
+#         target_equilibrium = target_equilibria[pert, :]
+#         #increase counter
+#         pert += 1
+#         # print(print("\e[A\e[2K"))
+#         # println("Perturbation number: ", pert,"/", nperts, " n = ", n)
+#         #form parameters of perturbed system with alpha value
+#         rpert = pars[2] + pert_rho_i
+#         parsnew = (pars[1], rpert, pars[3], pars[4])
+#         #solve system (get real solutions)
+#         solmat = makeandsolve(x, parsnew, n)
+#         nsols = length(solmat)
+#         nfeas_sols = length(getfeasrowinds(solmat))
+#         if interrupt == true 
+#             #user would like to interrupt search when it fails to find a feasible equilibrium:
+#             if nsols == 0 || nfeas_sols == 0 
+#                 #no feasible or real eq for a given perturbation
+#                 println("Condition has been fullfilled with interrupt = ", interrupt, 
+#                         " and n feas sols = ", nfeas_sols)
+#                 return equilibria
+#             end
+#         else
+#             #user would like to carry all perturbation regardless of sign
+#             if nsols == 0 #only complex solutions
+#             equilibria = vcat(equilibria, repeat([-Inf], n)') #treat complex solutions as negative.
+#             feasiblesol = false #we look for radii subtending only positive equilibria
+#             elseif nfeas_sols == 0 #no feasible solutions
+#                 equilibrium = select_row(solmat)
+#                 equilibria = vcat(equilibria, equilibrium[1]')
+#                 feasiblesol = false
+#             else #one or more feasible solutions
+#                 #get xmin from selected equilibrium
+#                 equilibrium = select_row(solmat)
+#                 nsols = length(equilibrium)
+#                 for i in 1:nsols
+#                     equilibriumi = equilibrium[i]
+#                     equilibria = vcat(equilibria, equilibriumi')
+#                 end
+#             end
+#         end
+#     end
+#     return equilibria
+# end
 
 """
 get appropriate limits based on sign of the middle point
@@ -299,16 +319,11 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol,
     #initialize number of iterations
     n_iterations = 0
     while abs(rho1 - rho2) > tol
-        if n_iterations == 0
-            target_equilibria = []
-        else 
-            target_equilibria = 
-        end
         println("[", rho1, ",", rho2, "]")
         #find the middle point of current interval
         global rhob = bisect(rho1, rho2)
         #perform disc perturbation of radius rb
-        equilibria = perturbondisc(rhob, pars, n, nperts, x, interrupt)
+        equilibria = perturbondisc(rhob, pars, nperts, x, interrupt)
         #check the minimum x obtained around the disc
         xmin = get_minimum(equilibria, nperts)
         println("xmin = ", xmin)
@@ -317,7 +332,7 @@ function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol,
         #if solution is found, check that no other solutions exist for smaller rs
         if abs(rho1 - rho2) < tol
             for rho in range(rhob, tol, 10)
-                equilibria = perturbondisc(rho, pars, n, nperts, x, interrupt)
+                equilibria = perturbondisc(rho, pars, nperts, x, interrupt)
                 xcheck = get_minimum(equilibria, nperts)
                 println("Backward checking: ", rho, "x = ", xcheck)
                 #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
@@ -345,7 +360,86 @@ end
 ############################CORRECTED FUNCTIONS FOR CRITICAL RADIUS##########################
 
 """
-a function that takes an nperturbationsxn matrix and determines if all the rows are positive 
+Takes a number and an index position i, and zeros out all digits after the specified position.
+The decimal point is not counted towards the position.
+"""
+function zero_out_after_position(num::Float64, i::Int)
+    # Convert number to string
+    num_str = string(num)
+    
+    # Find the decimal point position if it exists
+    decimal_pos = findfirst('.', num_str)
+    total_n_digits = length(num_str) - 1
+    n_digits_whole = length(num_str[1:(decimal_pos-1)])
+    n_digits_decimal = length(num_str[(decimal_pos+1):end])
+    
+    #if the last non-zero comes before the decimal position, its easy:
+    if i < decimal_pos 
+        return parse(Float64, num_str[1:i]*"0"^(n_digits_whole - i))
+    elseif i == decimal_pos
+        elements_after_dot = i - n_digits_whole
+        #i is at the decimal point or further down
+        return parse(Float64, num_str[1:n_digits_whole]*"."*num_str[(decimal_pos+1):(decimal_pos+elements_after_dot)])
+    else 
+        #i is beyond the decimal place
+        elements_after_dot = i - n_digits_whole
+        return parse(Float64, num_str[1:n_digits_whole]*"."*num_str[(decimal_pos+1):(decimal_pos+elements_after_dot)])
+    end
+end
+
+"""
+Given two numbers, returns the digit position in which the two numbers first differ,
+not counting the decimal point.
+"""
+function first_different_digit_position(num1::Float64, num2::Float64)
+    # Convert numbers to strings to compare digit by digit
+    str1 = string(num1)
+    str2 = string(num2)
+
+    # Remove the decimal point from both strings
+    str1_no_dec = replace(str1, "." => "")
+    str2_no_dec = replace(str2, "." => "")
+
+    # Get the length of the shorter string without the decimal
+    min_length = min(length(str1_no_dec), length(str2_no_dec))
+
+    # Compare digits
+    for i in 1:min_length
+        if str1_no_dec[i] != str2_no_dec[i]
+            return i  # Return the 1-based index of the first differing digit
+        end
+    end
+
+    # If all compared digits are the same, check if one number has more digits
+    if length(str1_no_dec) != length(str2_no_dec)
+        return min_length + 1  # Return position after the last matched digit
+    end
+
+    return nothing  # Return nothing if numbers are identical
+end
+
+"""
+distinguish_decimal(number::Float64, precision::Float64) -> Float64
+
+Returns the number without the part of the decimal that is below the specified precision.
+For example, if the decimal part is 0.23 and the precision is 0.1, it returns
+the integer part plus 0.2.
+"""
+function distinguish_decimal(number::Float64, prec::Float64)
+    sign = number < 0 ? -1.0 : 1.0  # Record the sign
+    abs_number = abs(number)        # Work with the absolute value
+
+    whole_part = floor(abs_number)   # Get the whole number part
+    decimal_part = abs_number - whole_part  # Get the decimal part
+
+    digits_to_keep = first_different_digit_position(decimal_part, decimal_part - prec)
+    #round up to number of identical postitions plus one
+    truncated = zero_out_after_position(abs_number, digits_to_keep)
+    return sign * (truncated)  # Return with the original sign
+end
+
+"""
+Given a "nperturbations" by "n" matrix, and determines if all the rows are positive 
 (that is, all have only elements greater than 0), and different from each other 
 (that is, each row is unique within a certain tolerance). 
 If these two conditions are met, return true. otherwise return false.
@@ -358,25 +452,22 @@ function check_rows_positive_and_unique(matrix::Matrix{Float64}, tolerance::Floa
         return false
     end
 
-    # Check if all rows are unique within the given tolerance
-    unique_rows = []
+    # Set to track unique rows (rounded for tolerance)
+    unique_rows = Set{Vector{Float64}}()
 
     for row in eachrow(matrix)
-        # Check if the current row is similar to any existing unique row
-        is_unique = true
-        for unique_row in unique_rows
-            if all(abs(row[i] - unique_row[i]) <= tolerance for i in 1:length(row))
-                is_unique = false
-                break
-            end
+        # Create a rounded version of the row for comparison
+        row_up_to_precision =  [distinguish_decimal(element, tolerance) for element in row]
+        # Check if the rounded row is already in the set
+        if row_up_to_precision in unique_rows
+            return false  # Not unique
         end
 
-        if is_unique
-            push!(unique_rows, row)
-        end
+        # Add the rounded row to the set
+        push!(unique_rows, row_up_to_precision)
     end
 
-    return length(unique_rows) == size(matrix, 1)
+    return true
 end
 
 """
@@ -391,40 +482,45 @@ function get_first_target(parameters::Tuple,
     all_equilibria = perturbondisc(perturbations, rho, parameters, x, true)
     #confirm that indeed they are different and positive
     first_target = select_equilibria(all_equilibria, 
-                                     repeat([1], n),
+                                     ones(nperturbations, n),
                                      "positive")
-    is_target_valid = check_rows_positive_and_unique(first_target)
+    is_target_valid = check_rows_positive_and_unique(first_target, 1e-6)
     if is_target_valid 
         return first_target
     else
         error("non valid first target. either contains negative elements (tolerance too big)
                or too similar elements (tolerance too small). Check first_target and change
                tolerance accordingly.")
+    end
 end
 
 """
 once solution is found, run backward checks to confirm it is indeed one
 """
 function confirm_solution(rhob::Float64, 
+                          perturbations::Matrix{Float64},
                           pars::Tuple,
                           n::Int64,
                           x::Vector{Variable},
                           nperturbations::Int64,
                           target::Matrix{Float64}, mode::String, 
                           tol::Float64)
-    for rho in range(rhob, tol, 10)
-        all_equilibria = perturbondisc(rho, pars, n, nperturbations, x, true)
+    #initialize xcheck   
+    xcheck = 1.0e6
+    for rho in range(rhob, tol, 10)                  
+        all_equilibria = perturbondisc(perturbations, rho, pars, x, true)
         #some could be non-feasible, if mode == "follow"
         xcheck = get_minimum(all_equilibria, nperturbations, target, mode)
         #println("Backward checking: ", rho, "x = ", xcheck)
         #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
         if xcheck < -tol
-            equilibria = perturbondisc(rho, pars, n, nperturbations, x, true)
+            equilibria = perturbondisc(rho, pars, nperturbations, x, true)
             xcheck = get_minimum(equilibria, nperts)
         end
         #if at some point x becomes negative or complex again, then another 0 exists
         if xcheck < -tol
             return xcheck
+        end
     end
     return xcheck
 end 
@@ -433,6 +529,7 @@ end
 perform a disc perturbation of the growthrate in pars of radius rho, and get
 the equilibrium responses after perturbation. when interrupt == true the programm will stop
 whenever there is a perturbation generating any non-feasible solutions
+equilibria is a Vector{Matrix{Float64}}.
 """
 function perturbondisc(perturbations::Matrix{Float64},
                        rho::Float64,
@@ -440,19 +537,19 @@ function perturbondisc(perturbations::Matrix{Float64},
                        #n::Int64,
                        x::Vector{Variable},
                        interrupt::Bool)
-    equilibria = []
+    equilibria = Vector{Matrix{Float64}}()
     nperts = size(perturbations, 1)
     #project perturbations to current radius
     perturbations_rho = rho*perturbations
     for i in 1:nperts
-        pert_i = pertsurbations_rho[i,:]
+        pert_i = perturbations_rho[i,:]
         # print(print("\e[A\e[2K"))
-        # println("Perturbation number: ", pert,"/", nperts, " n = ", n)
+        # println("Perturbation number: ", i,"/", nperts)
         #form parameters of perturbed system with alpha value
         rpert = parameters[2] + pert_i
         parsnew = (parameters[1], rpert, parameters[3], parameters[4])
         #solve system (get real solutions)
-        solmat = makeandsolve(x, parsnew)
+        solmat = makeandsolve(x, parsnew, n)
         #count solutions (real, feasible)
         nsols = length(solmat)
         nfeas_sols = length(getfeasrowinds(solmat))
@@ -537,16 +634,23 @@ function select_equilibria(array_of_matrices::Vector{Matrix{Float64}},
     for i in 1:k
         # Get the ith row of the target matrix
         target_row = target_matrix[i, :]
+        matrix_i = array_of_matrices[i]
+        if size(matrix_i, 1) == 0
+            # Handle empty matrix case
+            matched_matrix[i, :] .= NaN  # or zeros
+            continue  # Skip further processing for this iteration
+        end
+
         if mode == "follow"
             # Find the index of the closest row in the corresponding matrix
-            row_index = closest_row(target_row, array_of_matrices[i])
+            row_index = closest_row(target_row, matrix_i)
         
         elseif mode == "positive"
-            row_index = positive_row(target_row, array_of_matrices[i])
+            row_index = positive_row(target_row, matrix_i)
         else
             error("Don't know this mode of select equilibria")
         end
-        matched_matrix[i, :] = array_of_matrices[i][row_index, :]
+        matched_matrix[i, :] = matrix_i[row_index, :]
     end
     return matched_matrix
 end
@@ -560,9 +664,9 @@ therefore, the selected_equilibria should always contain positive rows if the mo
 positive. Otherwise the perturbation protocol should have not finished, and all_equilibria should
 be shorter than the number of perturbations.
 """
-function get_minimum(all_equilibria::Vector{Matrix{T}},
+function get_minimum(all_equilibria::Vector{Matrix{Float64}},
                      nperturbations::Int64,
-                     target_equilbria::Matrix{Float64},
+                     target_equilibria::Matrix{Float64},
                      mode::String
                      )
     if length(all_equilibria) < nperturbations
@@ -623,7 +727,7 @@ end
 function to count the average number of positve rows in each matrix of equilibria arising from 
 a perturbation.
 """
-function average_number_positive_rows(array_of_matrices::Vector{Matrix{T}})
+function average_number_positive_rows(array_of_matrices::Vector{Matrix{Float64}})
     k = length(array_of_matrices)   # Number of matrices
     # Initialize vector of number of positive rows in each matrix
     n_positive_rows = []  
