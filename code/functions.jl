@@ -309,55 +309,77 @@ function bisect(x0, x1)
     return 1/2*(x0 + x1)
 end
 
-"""
-get maximum perturbation on the growth rates retaining feasibility
-"""
-function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol,
-                             target_equilibria,
-                             pertubation_vec, 
-                             interrupt=true)
-    #initialize number of iterations
-    n_iterations = 0
-    while abs(rho1 - rho2) > tol
-        println("[", rho1, ",", rho2, "]")
-        #find the middle point of current interval
-        global rhob = bisect(rho1, rho2)
-        #perform disc perturbation of radius rb
-        equilibria = perturbondisc(rhob, pars, nperts, x, interrupt)
-        #check the minimum x obtained around the disc
-        xmin = get_minimum(equilibria, nperts)
-        println("xmin = ", xmin)
-        #modify interval depending on wehter the minimum is negative or positive
-        rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
-        #if solution is found, check that no other solutions exist for smaller rs
-        if abs(rho1 - rho2) < tol
-            for rho in range(rhob, tol, 10)
-                equilibria = perturbondisc(rho, pars, nperts, x, interrupt)
-                xcheck = get_minimum(equilibria, nperts)
-                println("Backward checking: ", rho, "x = ", xcheck)
-                #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
-                if xcheck < -tol
-                    equilibria = perturbondisc(rho, pars, n, nperts, x, interrupt)
-                    xcheck = get_minimum(equilibria, nperts)
-                end
-                #if at some point x becomes negative or complex again, then another 0 exists
-                if xcheck < -tol || xcheck == -Inf
-                    rho1 = 0
-                    rho2 = rho  
-                    break
-                end
-            end
-        end
-        return findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
-    end
-    return rhob
-end
+# """
+# get maximum perturbation on the growth rates retaining feasibility
+# """
+# function findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol,
+#                              target_equilibria,
+#                              pertubation_vec, 
+#                              interrupt=true)
+#     #initialize number of iterations
+#     n_iterations = 0
+#     while abs(rho1 - rho2) > tol
+#         println("[", rho1, ",", rho2, "]")
+#         #find the middle point of current interval
+#         global rhob = bisect(rho1, rho2)
+#         #perform disc perturbation of radius rb
+#         equilibria = perturbondisc(rhob, pars, nperts, x, interrupt)
+#         #check the minimum x obtained around the disc
+#         xmin = get_minimum(equilibria, nperts)
+#         println("xmin = ", xmin)
+#         #modify interval depending on wehter the minimum is negative or positive
+#         rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
+#         #if solution is found, check that no other solutions exist for smaller rs
+#         if abs(rho1 - rho2) < tol
+#             for rho in range(rhob, tol, 10)
+#                 equilibria = perturbondisc(rho, pars, nperts, x, interrupt)
+#                 xcheck = get_minimum(equilibria, nperts)
+#                 println("Backward checking: ", rho, "x = ", xcheck)
+#                 #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
+#                 if xcheck < -tol
+#                     equilibria = perturbondisc(rho, pars, n, nperts, x, interrupt)
+#                     xcheck = get_minimum(equilibria, nperts)
+#                 end
+#                 #if at some point x becomes negative or complex again, then another 0 exists
+#                 if xcheck < -tol || xcheck == -Inf
+#                     rho1 = 0
+#                     rho2 = rho  
+#                     break
+#                 end
+#             end
+#         end
+#         return findmaxperturbation(rho1, rho2, pars, n, nperts, x, tol)
+#     end
+#     return rhob
+# end
 
 
 #############################################################################################
 #############################################################################################
 #############################################################################################
 ############################CORRECTED FUNCTIONS FOR CRITICAL RADIUS##########################
+
+"""
+Plot perturbations
+"""
+
+function plotperturbations(matrix)
+    # Transform infinities to 0s
+    # Get the number of rows in the matrix
+    num_rows = size(matrix, 1)
+    
+    # Iterate over each row
+    for i in 1:num_rows
+        # Check if all elements in the row are -Inf
+        if all(x -> x == -Inf, matrix[i, :])
+            # Replace the row with zeros
+            matrix[i, :] .= 0
+        end
+    end
+    
+    # Create the scatter plot with lower limits set to 0
+    scatter(matrix[:, 1], matrix[:, 2], xlims=(0, maximum(matrix[:, 1]) + 1), ylims=(0, maximum(matrix[:, 2]) + 1))
+end
 
 """
 Takes a number and an index position i, and zeros out all digits after the specified position.
@@ -478,16 +500,18 @@ function get_first_target(parameters::Tuple,
                           perturbations::Matrix{Float64}, 
                           nperturbations::Int64, 
                           x::Vector{Variable},
-                          n::Int64)
-    all_equilibria = perturbondisc(perturbations, rho, parameters, x, true)
+                          n::Int64, 
+                          tol::Float64)
+    all_equilibria = perturbondisc(perturbations, rho, parameters, n, x, true)
     #confirm that indeed they are different and positive
     first_target = select_equilibria(all_equilibria, 
                                      ones(nperturbations, n),
                                      "positive")
-    is_target_valid = check_rows_positive_and_unique(first_target, 1e-6)
+    is_target_valid = check_rows_positive_and_unique(first_target, tol)
     if is_target_valid 
         return first_target
     else
+        println("First target: ", first_target)
         error("non valid first target. either contains negative elements (tolerance too big)
                or too similar elements (tolerance too small). Check first_target and change
                tolerance accordingly.")
@@ -507,15 +531,15 @@ function confirm_solution(rhob::Float64,
                           tol::Float64)
     #initialize xcheck   
     xcheck = 1.0e6
-    for rho in range(rhob, tol, 10)                  
-        all_equilibria = perturbondisc(perturbations, rho, pars, x, true)
-        #some could be non-feasible, if mode == "follow"
+    for rho in range(rhob, tol, 10)
+        all_equilibria = perturbondisc(perturbations, rho, pars, n, x, true)
+        #some could be non-feasible, if mode == "follow
         xcheck = get_minimum(all_equilibria, nperturbations, target, mode)
         #println("Backward checking: ", rho, "x = ", xcheck)
         #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
         if xcheck < -tol
-            equilibria = perturbondisc(rho, pars, nperturbations, x, true)
-            xcheck = get_minimum(equilibria, nperts)
+            equilibria = perturbondisc(perturbations, rho, pars, n, x, true)
+            xcheck = get_minimum(all_equilibria, nperturbations, target, mode)
         end
         #if at some point x becomes negative or complex again, then another 0 exists
         if xcheck < -tol
@@ -534,7 +558,7 @@ equilibria is a Vector{Matrix{Float64}}.
 function perturbondisc(perturbations::Matrix{Float64},
                        rho::Float64,
                        parameters::Tuple,
-                       #n::Int64,
+                       n::Int64,
                        x::Vector{Variable},
                        interrupt::Bool)
     equilibria = Vector{Matrix{Float64}}()
@@ -612,6 +636,9 @@ function positive_row(target_vector::Vector{Float64}, matrix::Matrix{Float64})
         closest_row_index = closest_row(target_vector, positive_matrix)
 
         return positive_rows_indices[closest_row_index]  # Return the index from the original matrix
+    elseif size(matrix, 1) == 0
+        #matrix is empty, return nothing
+        return nothing
     else
         # If no positive rows found, use the original matrix to find the closest row
         return closest_row(target_vector, matrix)  # Return closest row index from original matrix
@@ -690,35 +717,46 @@ function findmaxperturbation(rho1::Float64, rho2::Float64,
                              perturbations::Matrix{Float64},
                              nperturbations::Int64,
                              parameters::Tuple, 
+                             n::Int64,
                              x::Vector{Variable},
                              target_equilibria::Matrix{Float64},
                              mode::String,
                              tol::Float64=1e-9
                              )
-    #println("[", rho1, ",", rho2, "]")
     #find the middle point of current interval
     global rhob = bisect(rho1, rho2)
     #perform disc perturbation of radius rb
     while abs(rho1 - rho2) > tol
-        all_equilibria = perturbondisc(perturbations, rhob, parameters, x, true)
-        #some could be non-feasible, if mode == "follow"
-        xmin = get_minimum(all_equilibria, nperturbations, target_equilbria, mode)
-        if (xmin > 0)
-            #assign new target equilibria if all perturbations are feasible
-            target_equilbria = selected_equilibria
+        all_equilibria = perturbondisc(perturbations, rhob, parameters, n, x, true)
+        #if perturbation protocol stopped early, there were non-feasible solutions
+        if length(all_equilibria) < nperturbations
+            #the perturbation protocol stopped early (non-feasibility encountered)
+            xmin = -1.0
+        else 
+            #otherwise there are at least one feasible equilibria per perturbation
+            selected_equilibria = select_equilibria(all_equilibria,
+                                                    target_equilibria,
+                                                    mode)
+            #this minimum could be negative after selection if mode=="follow"
+            xmin = minimum(selected_equilibria)
+            if (xmin > 0)
+                #assign new target equilibria if all perturbations are feasible
+                target_equilbria = selected_equilibria
+            end
         end
+        println("[", rho1, ",", rho2, "] with xmin = ", xmin, " at rhob = ", rhob)
         #redefine limits
         rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
         #if solution is found, check that no other solutions exist for smaller rs
         if abs(rho1 - rho2) < tol
-            xmin = confirm_solution(rhob, parameters, n, x, nperturbations, target, mode, tol)
+            xmin = confirm_solution(rhob, perturbations, parameters, n, x, nperturbations, target_equilibria, mode, tol)
             if xmin < -tol
-                rho1 = 0 
+                rho1 = 0.0
                 rho2 = rhob
             end
         end
         return findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters,
-                                   x, target_equilibria, mode, tol)
+                                   n, x, target_equilibria, mode, tol)
     end
     return rhob, target_equilibria
 end

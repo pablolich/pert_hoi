@@ -33,15 +33,15 @@ for sim in 1:nsim #perform many replicates
             #form list of parameters for current simulation
             pars = (alpha, r0, A, B)
             #find first equilibria around the (1, 1, 1, ... , 1) point
-            target_equilibira = get_first_target(pars, tol, perturbations, nperturbations, x, n)
+            target_equilibira = get_first_target(pars, tol, perturbations, nperturbations, x, n, tol)
             #find critical radius
             crit_radius, crit_equilibria = findmaxperturbation(rho1, rho2, perturbations, 
                                                                nperturbations, 
-                                                               pars, x, target_equilibria,
+                                                               pars, n, x, target_equilibria,
                                                                "follow", tol)
             crit_radius_pos, crit_equilibria_pos = findmaxperturbation(ho1, rho2, perturbations, 
                                                                        nperturbations, 
-                                                                       pars, x, target_equilibria,
+                                                                       pars, n, x, target_equilibria,
                                                                        "positive", tol)
             #now extend from critical radius to 1.5*critical radius to see how fast does the 
             #feasibility breaking happens.
@@ -50,7 +50,7 @@ for sim in 1:nsim #perform many replicates
                 rpert = pars[2] + pert_i
                 parsnew = (pars[1], rpert, pars[3], pars[4])
                 #get proportion of feasible states
-                all_equlibria = perturbondisc(parsnew, rhob, parameters, x, false)
+                all_equlibria = perturbondisc(parsnew, rhob, parameters, n, x, false)
                 if rho == crit_radius
                     #compute and store average number of positive equilibria at critical_radius
                     n_eq_av = average_number_positive_rows(all_equilibria)

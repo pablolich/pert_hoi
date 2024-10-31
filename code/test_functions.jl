@@ -122,7 +122,7 @@ function test_perturbondisc()
     @var x[1:n]  # Define x as a function of n
     interrupt = true
 
-    result = perturbondisc(perturbations, rho, parameters, x, interrupt)
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt)
 
     # Check if the result is a Vector of Matrix{Float64}
     if isa(result, Vector{Matrix{Float64}})
@@ -139,6 +139,45 @@ function test_perturbondisc()
         end
     else
         println("Test perturbondisc: Failed - Output type is ", typeof(result))
+    end
+end
+
+function test_closest_row()
+    n = 2  # Define n first
+    vector = [5.1, 6]
+    matrix = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+
+    result = closest_row(vector, matrix)
+    println("Test closest_row: Expected closest row index, got: ", result, " - Passed")
+end
+
+function test_positive_row()
+    n = 2
+    # Test cases
+    test_cases = [
+        # Test case 1: No positive rows
+        ([1.0, 2.0], [0.0 0.0; 
+                      -1.0 -2.0; 
+                      1.1 2.1
+                      -3.0 -4.0;
+                      1.2 2.2], 3),  # Closest row should be the thirdx
+        # Test case 2: One positive row
+        ([1.0, 2.0], [0.0 0.0; 1.0 1.0], 2),  # Should return the index of the positive row
+        # Test case 3: Multiple positive rows
+        ([1.0, 2.0], [1.0 2.0; 3.0 4.0; 2.0 2.0], 1),  # Closest to [1,2] should be the first row
+        # Test case 4: All negative elements
+        ([1.0, 1.0], [-1.0 -2.0; -3.0 -4.0], 1),  # Closest should be the first (since all are negative)
+        # Test case 5: Empty matrix
+        ([1.0, 1.0],Matrix{Float64}(undef, 0, n), nothing)  # Should handle gracefully
+    ]
+
+    for (target_vector, matrix, expected) in test_cases
+        result = positive_row(target_vector, matrix)
+        if expected == nothing
+            println("Test with matrix $matrix: Expected nothing, got $result - ", result == nothing ? "Passed" : "Failed")
+        else
+            println("Test with matrix $matrix: Expected index $expected, got $result - ", result == expected ? "Passed" : "Failed")
+        end
     end
 end
 
@@ -202,9 +241,10 @@ function test_get_first_target()
     perturbations = [1.0 1.0; 2.0 2.0; 3.0 3.0]
     nperturbations = size(perturbations, 1)
     @var x[1:n]  # Define x as a function of n
+    tol = 1e-9
 
     try
-        result = get_first_target(parameters, rho, perturbations, nperturbations, x, n)
+        result = get_first_target(parameters, rho, perturbations, nperturbations, x, n, tol)
         println("Test get_first_target: Expected a matrix of equilibria, got: ", result, " - Passed")
     catch e
         println("Test get_first_target: Expected no error, caught exception: ", e, " - Failed")
@@ -218,40 +258,51 @@ function test_findmaxperturbation()
 
     tol = 1e-9
     rho1 = tol
-    rho2 = 10
-    perturbations = [1.0 1.0; 2.0 2.0; 3.0 3.0]
-    nperturbations = 3
+    rho2 = 10.0
+    perturbations = points_hypersphere(2, 1.0, 10)
+    nperturbations = size(perturbations, 1)
     parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
     # Flatten tuple
     parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
-    target = [1.0 2.0; 3 4; 5 7]
+    target = get_first_target(parameters, 1e-8, perturbations, nperturbations, x, n, tol)
     mode = "follow"
-
-    try
-        result = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, x,target, mode,tol)
-        println("Test findmaxperturbation: Expected a float64, got: ", result, " - Passed")
-    catch e
-        println("Test findmaxperturbation: Expected no error, caught exception: ", e, " - Failed")
+    # Test with initial rho1
+    rhomax, equilibria = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, n, x, target, mode, tol)
+    display(plotperturbations(equilibria))
+    if isa(rhomax, Float64) && isa(equilibria, Matrix{Float64}) && size(equilibria, 1) == nperturbations
+        println("Test findmaxperturbation: Passed - Expected float and matrix, got: ", typeof(rhomax), " ", typeof(equilibria), size(equilibria))
+    else
+        println("Test findmaxperturbation: Failed - Expected a float and matrix, got: ", typeof(rhomax), typeof(equilibria), size(equilibria))
     end
-end
 
-function test_closest_row()
-    n = 2  # Define n first
-    vector = [1.0, 2.0]
-    matrix = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    # Test for slightly increased rhomax
+    rho_test = rhomax + 0.0001
 
-    result = closest_row(vector, matrix)
-    println("Test closest_row: Expected closest row index, got: ", result, " - Passed")
-end
+    # Test perturbondisc with increased rho
+    interrupt = true
+    result_interrupt = perturbondisc(perturbations, rho_test, parameters, n, x, interrupt)
+    println(result_interrupt)
+    selected_equilibria = select_equilibria(result_interrupt, equilibria, "follow")
+    println(selected_equilibria)
+    #display(plotperturbations(selected_equilibria))
+    println(selected_equilibria)
+    if size(selected_equilibria, 1) < nperturbations
+        println("Test perturbondisc (interrupt=true): Passed - Output has fewer rows than nperturbations: ", size(result_interrupt, 1))
+    else
+        println("Test perturbondisc (interrupt=true): Failed - Expected fewer rows than nperturbations, got: ", size(result_interrupt, 1))
+    end
 
-function test_positive_row()
-    n = 2  # Define n first
-    target_vector = [1.0, 2.0]
-    matrix = [1.0 2.0; -1.0 4.0; 3.0 4.0]
+#    interrupt = false
+#    result_no_interrupt = perturbondisc(perturbations, rho_test, parameters, x, interrupt)
 
-    result = positive_row(target_vector, matrix)
-    println("Test positive_row: Expected positive row index, got: ", result, " - Passed")
+#    # Check if there are any negative rows
+#    negative_rows = count(row -> any(row .< 0), eachrow(result_no_interrupt))
+#    if negative_rows > 0
+#        println("Test perturbondisc (interrupt=false): Passed - Found negative rows: ", negative_rows)
+#    else
+#        println("Test perturbondisc (interrupt=false): Failed - No negative rows found.")
+#    end
 end
 
 function test_average_number_positive_rows()
@@ -302,6 +353,14 @@ println("Test perturbondisc()")
 test_perturbondisc()
 
 println()
+println("Test closest_row()")
+test_closest_row()
+
+println()
+println("Test postive_row)")
+test_positive_row()
+
+println()
 println("Test select_equilibria()")
 test_select_equilibria()
 
@@ -318,12 +377,10 @@ println("Test get_first_target")
 test_get_first_target()
 
 
-# println()
-# println("Test findmaxperturbation()")
-# test_findmaxperturbation()
+println()
+println("Test findmaxperturbation()")
+test_findmaxperturbation()
 
 
-# test_closest_row()
-# test_positive_row()
 # test_average_number_positive_rows()
 # test_proportion_of_positive_rows()
