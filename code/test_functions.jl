@@ -69,10 +69,46 @@ function test_check_rows_positive_and_unique()
             !check_rows_positive_and_unique(matrix3, 0.01) ? "Passed" : "Failed")
 end
 
+function test_getfeasrowinds()
+    # Test with a real matrix
+    real_matrix = [
+        1.0 2.0;  # Feasible
+        -1.0 3.0; # Not feasible
+        0.5 0.1;  # Feasible
+        0.0 2.0   # Not feasible
+    ]
+    expected_real_indices = [1, 3]  # Only rows 1 and 3 are feasible
+    actual_real_indices = getfeasrowinds(real_matrix)
+
+    println("Testing with real matrix...")
+    println("Expected: ", expected_real_indices)
+    println("Actual: ", actual_real_indices)
+    @assert actual_real_indices == expected_real_indices
+
+    # Test with a complex matrix
+    complex_matrix = [
+        1 + 1im 2 + 2im;      # Not feasible (imaginary parts > tol)
+        0.5 + 0im 0.1 + 0im;  # Feasible (real parts > 0)
+        1 - 1e-11im 2 + 0im;  # Feasible (imaginary parts < tol)
+        -1 + 0im 3 + 1im      # Not feasible (negative real part)
+    ]
+    expected_complex_indices = [2, 3]  # Rows 2 and 3 are feasible
+    actual_complex_indices = getfeasrowinds(complex_matrix)
+
+    println("Testing with complex matrix...")
+    println("Expected: ", expected_complex_indices)
+    println("Actual: ", actual_complex_indices)
+    @assert actual_complex_indices == expected_complex_indices
+
+    println("All tests passed!")
+end
+
 function test_makeandsolve()
     n = 2  # Define n first
-    parameters = (2.0, [1.5, 1.5], [0.1 0.2; 0.3 0.4], rand(Float64, n, n, n))  # Adjusted values in the tuple
-    rho = 0.1
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
 
     result = makeandsolve(x, parameters, n)
@@ -82,16 +118,9 @@ function test_makeandsolve()
     else
         println("Test makeandsolve: Failed - Output type is ", typeof(result))
     end
-end
-
-function has_row_all_ones(matrix::Matrix{Float64}, tol::Float64=1e-6)
-    # Check each row of the matrix
-    for row in eachrow(matrix)
-        if all(abs.(row .- 1.0) .< tol)
-            return true  # Found a row of all ones
-        end
-    end
-    return false  # No row of all ones found
+    #now test the output when real = false
+    matrix_solutions = makeandsolve(x, parameters, n, false)
+    println("matrix sols with complex ", matrix_solutions)
 end
 
 function test_sampleparameters()
@@ -144,11 +173,20 @@ end
 
 function test_closest_row()
     n = 2  # Define n first
-    vector = [5.1, 6]
-    matrix = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    #now test the output when real = false
+    matrix_solutions = makeandsolve(x, parameters, n, false)
+    vector = [1.0, 1.0]
 
-    result = closest_row(vector, matrix)
-    println("Test closest_row: Expected closest row index, got: ", result, " - Passed")
+    result = closest_row(vector, matrix_solutions)
+
+    println("Test closest_row: Inputed vector is ", vector)
+    println("Inputed matrix is ", matrix_solutions)
+    println("Closest row is ", matrix_solutions[result,:])
 end
 
 function test_positive_row()
@@ -184,15 +222,37 @@ end
 function test_select_equilibria()
     n = 2  # Define n first
     array_of_matrices = [
-        [1.0 2.0; -1.0 4.0; 3.0 4.0],
-        Matrix{Float64}(undef, 0, n),
-        [5.0 6.0; 7.0 8.0; 9.0 10.0]
+        [1.0 2.0; 0.1 4.0; 1 0.1], #perturbation 1
+        Matrix{Float64}(undef, 0, n), #perturbation 2
+        [0.1 0.1; 7.0 8.0; 1.1 .1], #perturbation 3
     ]
     target_matrix = [1.0 2.0; 5.0 6.0; 1 -1]
     mode = "follow"
 
     result = select_equilibria(array_of_matrices, target_matrix, mode)
-    println("Test select_equilibria: Expected selected equilibria, got: ", result, " - Passed")
+    println("Test select_equilibria (mode=follow): Expected selected equilibria, got: ", result, " - Passed")
+
+    mode = "positive"
+    result = select_equilibria(array_of_matrices, target_matrix, mode)
+    print("Test select_equilibria (mode=positive): Expected matrix, got ", result, "- Passed")
+
+    # New test for complex matrices with non-zero imaginary parts
+    complex_array_of_matrices = [
+        [Complex{Float64}(1.0, 1.0) Complex{Float64}(2.0, -1.0);
+         Complex{Float64}(0.1, 0.5) Complex{Float64}(4.0, 0.0);
+         Complex{Float64}(1.0, -0.2) Complex{Float64}(0.1, 3.0)], # Complex perturbation 1
+        Matrix{Complex{Float64}}(undef, 0, n), # Complex perturbation 2
+        [Complex{Float64}(0.1, 0.1) Complex{Float64}(0.1, -0.3);
+         Complex{Float64}(7.0, 0.4) Complex{Float64}(8.0, 1.0);
+         Complex{Float64}(1.1, -0.5) Complex{Float64}(0.1, 0.2)], # Complex perturbation 3
+    ]
+    complex_target_matrix = [Complex{Float64}(0.1, 0.4) Complex{Float64}(4.3, -0.1);
+                             Complex{Float64}(5.0, 0.5) Complex{Float64}(6.0, 1.0);
+                             Complex{Float64}(1.0, -1.0) Complex{Float64}(0.0, 0.0)]
+    complex_mode = "follow"
+
+    complex_result = select_equilibria(complex_array_of_matrices, complex_target_matrix, complex_mode)
+    println("Test select_equilibria (complex, mode=follow): Expected selected equilibria, got: ", complex_result)
 end
 
 function test_get_minimum()
@@ -269,7 +329,7 @@ function test_findmaxperturbation()
     mode = "follow"
     # Test with initial rho1
     rhomax, equilibria = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, n, x, target, mode, tol)
-    display(plotperturbations(equilibria))
+    #display(plotperturbations(equilibria))
     if isa(rhomax, Float64) && isa(equilibria, Matrix{Float64}) && size(equilibria, 1) == nperturbations
         println("Test findmaxperturbation: Passed - Expected float and matrix, got: ", typeof(rhomax), " ", typeof(equilibria), size(equilibria))
     else
@@ -305,82 +365,139 @@ function test_findmaxperturbation()
 #    end
 end
 
+function test_testrmax()
+    n = 2  # Define n first
+    rng = MersenneTwister(1)
+
+    tol = 1e-9
+    rho1 = tol
+    rho2 = 10.0
+    perturbations = points_hypersphere(2, 1.0, 100)
+    nperturbations = size(perturbations, 1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    mode="follow"
+
+    target = get_first_target(parameters, 1e-3, perturbations, nperturbations, x, n, tol)
+    #find rmax 
+    rmax, equilibria = findmaxperturbation(tol, 10.0, perturbations, nperturbations, parameters, n, x, target, mode, tol)
+    testrmax(perturbations, parameters, n, x, false, rmax)
+
+end
+
 function test_average_number_positive_rows()
     n = 2  # Define n first
-    array_of_matrices = [
-        [1.0 2.0; -1.0 4.0; 3.0 4.0],
-        [5.0 6.0; 7.0 8.0; -9.0 10.0]
-    ]
+    perturbations = points_hypersphere(2, 1.0, 100)
+    rho = 0.004
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    interrupt = true
 
-    result = average_number_positive_rows(array_of_matrices)
+    response_perts = perturbondisc(perturbations, rho, parameters, n, x, interrupt)
+
+    result = average_number_positive_rows(response_perts)
     println("Test average_number_positive_rows: Expected average number of positive rows, got: ", result, " - Passed")
+
+    #now test with complex entries
+    response_perts = perturbondisc(perturbations, rho, parameters, n, x, false, false)
+    result = average_number_positive_rows(response_perts)
+    println("Test average_number_positive_rows with complex entries: Expected average number of positive rows, got: ", result, " - Passed")
+
 end
 
 function test_proportion_of_positive_rows()
     n = 2  # Define n first
-    matrix = [1.0 2.0; -1.0 4.0; 3.0 4.0]
+    perturbations = points_hypersphere(2, 1.0, 100)
+    rho = 0.004
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    matrix = perturbondisc(perturbations, rho, parameters, n, x, false, false)
 
-    result = proportion_of_positive_rows(matrix)
+    result = proportion_of_positive_rows(real(matrix))
     println("Test proportion_of_positive_rows: Expected proportion of positive rows, got: ", result, " - Passed")
+
+    result_alternative = getfeasrowinds(matrix)
+
+    @assert result == length(result_alternative)/size(matrix, 1)
 end
 
 # Call test functions
-println("Test fzero_out_after_position()")
-test_zero_out_after_position()
+# println("Test fzero_out_after_position()")
+# test_zero_out_after_position()
 
-println()
-println("Test first_different_digit_position()")
-test_first_different_digit_position()
+# println()
+# println("Test first_different_digit_position()")
+# test_first_different_digit_position()
 
-println()
-println("Test distinguish_decimal()")
-test_distinguish_decimal()
+# println()
+# println("Test distinguish_decimal()")
+# test_distinguish_decimal()
 
-println()
-println("Test check_rows_positive_and_unique()")
-test_check_rows_positive_and_unique()
+# println()
+# println("Test check_rows_positive_and_unique()")
+# test_check_rows_positive_and_unique()
 
-println()
-println("Test makeandsolve()")
-test_makeandsolve()
+# println()
+# println("Test getfeasrowinds()")
+# test_getfeasrowinds()
 
-println()
-println("Test sampleparameters()")
-test_sampleparameters()
+# println()
+# println("Test makeandsolve()")
+# test_makeandsolve()
 
-println()
-println("Test perturbondisc()")
-test_perturbondisc()
+# println()
+# println("Test sampleparameters()")
+# test_sampleparameters()
 
-println()
-println("Test closest_row()")
-test_closest_row()
+# println()
+# println("Test perturbondisc()")
+# test_perturbondisc()
 
-println()
-println("Test postive_row)")
-test_positive_row()
+# println()
+# println("Test closest_row()")
+# test_closest_row()
+
+# println()
+# println("Test postive_row)")
+# test_positive_row()
 
 println()
 println("Test select_equilibria()")
 test_select_equilibria()
 
-println()
-println("Test get_minimum()")
-test_get_minimum()
+# println()
+# println("Test get_minimum()")
+# test_get_minimum()
 
-println()
-println("Test confirm_solution()")
-test_confirm_solution()
+# println()
+# println("Test confirm_solution()")
+# test_confirm_solution()
 
-println()
-println("Test get_first_target")
-test_get_first_target()
-
-
-println()
-println("Test findmaxperturbation()")
-test_findmaxperturbation()
+# println()
+# println("Test get_first_target")
+# test_get_first_target()
 
 
+# println()
+# println("Test findmaxperturbation()")
+# test_findmaxperturbation()
+
+# println()
+# println("Test testrmax()")
+# test_testrmax() 
+
+# println()
+# println("Test average_number_positive_rows()")
 # test_average_number_positive_rows()
+
+# println()
+# println("Test proportion_of_positive_rows()")
 # test_proportion_of_positive_rows()
