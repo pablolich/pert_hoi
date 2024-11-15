@@ -101,6 +101,25 @@ function test_getfeasrowinds()
     @assert actual_complex_indices == expected_complex_indices
 
     println("All tests passed!")
+
+    println("Now test a real case")
+    #test a real case: 
+    n = 2  # Define n first
+    #sample perturbations on a sphere
+    perturbations = points_hypersphere(2, 1.0, 10)
+    rho = 0.05
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    interrupt = false
+    target = get_first_target(parameters, 1e-8, perturbations, 10, x, n, tol)
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "follow")
+    selected_equilibria = select_feasible_equilibria(result, target)
+    println("Equlibria are: ", selected_equilibria)
+    feasible_rows = getfeasrowinds(selected_equilibria, tol)
+    println("Feasible rows are: ", feasible_rows)
 end
 
 function test_makeandsolve()
@@ -161,13 +180,13 @@ function test_perturbondisc()
     n = 2  # Define n first
     #sample perturbations on a sphere
     perturbations = points_hypersphere(2, 1.0, 10)
-    rho = 0.1
+    rho = 0.05
     rng = MersenneTwister(1)
     parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
     # Flatten tuple
     parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
-    interrupt = true
+    interrupt = false
 
     result = perturbondisc(perturbations, rho, parameters, n, x, interrupt)
 
@@ -188,20 +207,21 @@ function test_perturbondisc()
         println("Test perturbondisc: Failed - Output type is ", typeof(result))
     end
 
-    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, true, "all")
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "all")
+    println("Result: ", result)
 
     if isa(result, Vector{Matrix{Float64}})
         println("Test perturbondisc with points on hypersphere: Passed with matrix of dimensions: ", size(result))
     else
-        prinln("Test perturbondisc with points on hypershpere: Failed")
+        println("Test perturbondisc with points on hypershpere: Failed")
     end
 
-    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, true, "follow")
-
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "follow")
+    println("result following: ", result)
     if isa(result, Vector{Matrix{Float64}})
         println("Test perturbondisc with points on hypersphere and following equilibria: Passed with matrix of dimensions: ", size(result))
     else
-        prinln("Test perturbondisc with points on hypershpere and follwoing equilibria: Failed")
+        println("Test perturbondisc with points on hypershpere and follwoing equilibria: Failed")
     end
 end
 
@@ -259,8 +279,9 @@ function test_select_feasible_equilibria()
         [1.0 2.0; 0.1 4.0; 1 0.1], #perturbation 1
         Matrix{Float64}(undef, 0, n), #perturbation 2
         [0.1 0.1; 7.0 8.0; 1.1 .1], #perturbation 3
+        Matrix{ComplexF64}(undef, 0, n) #perturbation 4
     ]
-    target_matrix = [1.0 2.0; 5.0 6.0; 1 -1]
+    target_matrix = [1.0 2.0; 5.0 6.0; 1 -1; 1. 1.]
 
     result = select_feasible_equilibria(array_of_matrices, target_matrix)
     println("Test select_feasible_equilibria: Expected selected equilibria, got: ", result, " - Passed")
@@ -284,6 +305,22 @@ function test_select_feasible_equilibria()
 
     complex_result = select_feasible_equilibria(complex_array_of_matrices, complex_target_matrix)
     println("Test select_feasible_equilibria : Expected selected equilibria, got: ", complex_result)
+
+    #test a real case: 
+    n = 2  # Define n first
+    #sample perturbations on a sphere
+    perturbations = points_hypersphere(2, 1.0, 10)
+    rho = 0.05
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))
+    @var x[1:n]  # Define x as a function of n
+    interrupt = false
+    target = get_first_target(parameters, 1e-8, perturbations, 10, x, n, tol)
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "follow")
+    println("Test a real case of following an equilibria that becomes complex")
+    println("Result is: ", select_feasible_equilibria(result, target))
 end
 
 function test_get_minimum()
@@ -477,9 +514,9 @@ end
 # println("Test check_rows_positive_and_unique()")
 # test_check_rows_positive_and_unique()
 
-# println()
-# println("Test getfeasrowinds()")
-# test_getfeasrowinds()
+println()
+println("Test getfeasrowinds()")
+test_getfeasrowinds()
 
 # println()
 # println("Test makeandsolve()")
@@ -489,9 +526,9 @@ end
 # println("Test sampleparameters()")
 # test_sampleparameters()
 
-println()
-println("Test perturbondisc()")
-test_perturbondisc()
+# println()
+# println("Test perturbondisc()")
+# test_perturbondisc()
 
 # println()
 # println("Test closest_row()")
@@ -501,9 +538,9 @@ test_perturbondisc()
 # println("Test postive_row)")
 # test_positive_row()
 
-# println()
-# println("Test select_feasible_equilibria()")
-# test_select_feasible_equilibria()
+println()
+println("Test select_feasible_equilibria()")
+test_select_feasible_equilibria()
 
 # println()
 # println("Test get_minimum()")

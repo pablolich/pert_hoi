@@ -173,15 +173,11 @@ function makeandsolve(x::Vector{Variable},
     else
         #return all roots
         solvecs = solutions(res)
-        if mode == "follow"
-            println(res)
-            println(syst)
-            print("result with mode ", mode, " is ", results(res))
-            println(start_solutions)
-            println(pars[2])
-            println(pars[2] .+ perturbation)
+        if isempty(solvecs) #solution became complex, but parameter homotopy could not follow it
+            solmat = Matrix{ComplexF64}(undef, 0, n)
+        else
+            solmat = mapreduce(permutedims, vcat, solvecs)
         end
-        solmat = mapreduce(permutedims, vcat, solvecs)
     end
    return solmat
 end
