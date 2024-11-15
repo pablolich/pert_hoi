@@ -111,7 +111,7 @@ function test_makeandsolve()
     parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
 
-    result = makeandsolve(x, parameters, n)
+    result = makeandsolve(x, parameters, n, 0.1*ones(n))
     # Check if the result is a Vector of Matrix{Float64}
     if isa(result, Matrix{Float64})
         println("Test makeandsolve: Passed - Output is a Vector of Matrix{Float64}")
@@ -119,8 +119,25 @@ function test_makeandsolve()
         println("Test makeandsolve: Failed - Output type is ", typeof(result))
     end
     #now test the output when real = false
-    matrix_solutions = makeandsolve(x, parameters, n, false)
+    matrix_solutions = makeandsolve(x, parameters, n, 0.1*ones(n), false)
     println("matrix sols with complex ", matrix_solutions)
+
+    println("test makeandsolve for the mode where we follow equilibrium of ones")
+    result = makeandsolve(x, parameters, n, 0.1*ones(n),
+                          false, 
+                          "follow")
+    if isa(result, Matrix{ComplexF64})
+        println("Test makeandsolve: Passed - Output is a matrix of complex")
+        println("Result: ", result)
+    end
+    println("test makeandsolve for the mode where we follow equilibrium of ones and only look for real")
+    result = makeandsolve(x, parameters, n, 0.1*ones(n),
+                          true, 
+                          "follow")
+    if isa(result, Matrix{Float64})
+        println("Test makeandsolve: Passed - Output is a matrix of reals")
+        println("Result: ", result)
+    end
 end
 
 function test_sampleparameters()
@@ -142,7 +159,8 @@ end
 
 function test_perturbondisc()
     n = 2  # Define n first
-    perturbations = [1.0 1.0; 2.0 2.0; 3.0 3.0]
+    #sample perturbations on a sphere
+    perturbations = points_hypersphere(2, 1.0, 10)
     rho = 0.1
     rng = MersenneTwister(1)
     parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
@@ -168,6 +186,22 @@ function test_perturbondisc()
         end
     else
         println("Test perturbondisc: Failed - Output type is ", typeof(result))
+    end
+
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, true, "all")
+
+    if isa(result, Vector{Matrix{Float64}})
+        println("Test perturbondisc with points on hypersphere: Passed with matrix of dimensions: ", size(result))
+    else
+        prinln("Test perturbondisc with points on hypershpere: Failed")
+    end
+
+    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, true, "follow")
+
+    if isa(result, Vector{Matrix{Float64}})
+        println("Test perturbondisc with points on hypersphere and following equilibria: Passed with matrix of dimensions: ", size(result))
+    else
+        prinln("Test perturbondisc with points on hypershpere and follwoing equilibria: Failed")
     end
 end
 
@@ -219,7 +253,7 @@ function test_positive_row()
     end
 end
 
-function test_select_equilibria()
+function test_select_feasible_equilibria()
     n = 2  # Define n first
     array_of_matrices = [
         [1.0 2.0; 0.1 4.0; 1 0.1], #perturbation 1
@@ -227,14 +261,12 @@ function test_select_equilibria()
         [0.1 0.1; 7.0 8.0; 1.1 .1], #perturbation 3
     ]
     target_matrix = [1.0 2.0; 5.0 6.0; 1 -1]
-    mode = "follow"
 
-    result = select_equilibria(array_of_matrices, target_matrix, mode)
-    println("Test select_equilibria (mode=follow): Expected selected equilibria, got: ", result, " - Passed")
+    result = select_feasible_equilibria(array_of_matrices, target_matrix)
+    println("Test select_feasible_equilibria: Expected selected equilibria, got: ", result, " - Passed")
 
-    mode = "positive"
-    result = select_equilibria(array_of_matrices, target_matrix, mode)
-    print("Test select_equilibria (mode=positive): Expected matrix, got ", result, "- Passed")
+    result = select_feasible_equilibria(array_of_matrices, target_matrix)
+    print("Test select_feasible_equilibria : Expected matrix, got ", result, "- Passed")
 
     # New test for complex matrices with non-zero imaginary parts
     complex_array_of_matrices = [
@@ -249,10 +281,9 @@ function test_select_equilibria()
     complex_target_matrix = [Complex{Float64}(0.1, 0.4) Complex{Float64}(4.3, -0.1);
                              Complex{Float64}(5.0, 0.5) Complex{Float64}(6.0, 1.0);
                              Complex{Float64}(1.0, -1.0) Complex{Float64}(0.0, 0.0)]
-    complex_mode = "follow"
 
-    complex_result = select_equilibria(complex_array_of_matrices, complex_target_matrix, complex_mode)
-    println("Test select_equilibria (complex, mode=follow): Expected selected equilibria, got: ", complex_result)
+    complex_result = select_feasible_equilibria(complex_array_of_matrices, complex_target_matrix)
+    println("Test select_feasible_equilibria : Expected selected equilibria, got: ", complex_result)
 end
 
 function test_get_minimum()
@@ -282,6 +313,7 @@ function test_confirm_solution()
     target = [1.0 2.0; 3 4; 5 7]
     mode = "follow"
     tol = 1e-5
+
     try
         result = confirm_solution(rhob, perturbations, parameters, n, x, nperturbations, target, mode, tol)
         println("Test confirm_solution: Expected a float64, got: ", result, " - Passed")
@@ -328,12 +360,12 @@ function test_findmaxperturbation()
     target = get_first_target(parameters, 1e-8, perturbations, nperturbations, x, n, tol)
     mode = "follow"
     # Test with initial rho1
-    rhomax, equilibria = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, n, x, target, mode, tol)
+    rhomax = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, n, x, target, mode, tol)
     #display(plotperturbations(equilibria))
-    if isa(rhomax, Float64) && isa(equilibria, Matrix{Float64}) && size(equilibria, 1) == nperturbations
-        println("Test findmaxperturbation: Passed - Expected float and matrix, got: ", typeof(rhomax), " ", typeof(equilibria), size(equilibria))
+    if isa(rhomax, Float64)
+        println("Test findmaxperturbation: Passed - Expected float and matrix, got: ", typeof(rhomax))
     else
-        println("Test findmaxperturbation: Failed - Expected a float and matrix, got: ", typeof(rhomax), typeof(equilibria), size(equilibria))
+        println("Test findmaxperturbation: Failed - Expected a float and matrix, got: ", typeof(rhomax))
     end
 
     # Test for slightly increased rhomax
@@ -343,7 +375,7 @@ function test_findmaxperturbation()
     interrupt = true
     result_interrupt = perturbondisc(perturbations, rho_test, parameters, n, x, interrupt)
     println(result_interrupt)
-    selected_equilibria = select_equilibria(result_interrupt, equilibria, "follow")
+    selected_equilibria = select_feasible_equilibria(result_interrupt, target)
     println(selected_equilibria)
     #display(plotperturbations(selected_equilibria))
     println(selected_equilibria)
@@ -383,7 +415,7 @@ function test_testrmax()
     target = get_first_target(parameters, 1e-3, perturbations, nperturbations, x, n, tol)
     #find rmax 
     rmax, equilibria = findmaxperturbation(tol, 10.0, perturbations, nperturbations, parameters, n, x, target, mode, tol)
-    testrmax(perturbations, parameters, n, x, false, rmax)
+    testrmax(perturbations, parameters, n, x, false, rmax, mode)
 
 end
 
@@ -457,9 +489,9 @@ end
 # println("Test sampleparameters()")
 # test_sampleparameters()
 
-# println()
-# println("Test perturbondisc()")
-# test_perturbondisc()
+println()
+println("Test perturbondisc()")
+test_perturbondisc()
 
 # println()
 # println("Test closest_row()")
@@ -469,9 +501,9 @@ end
 # println("Test postive_row)")
 # test_positive_row()
 
-println()
-println("Test select_equilibria()")
-test_select_equilibria()
+# println()
+# println("Test select_feasible_equilibria()")
+# test_select_feasible_equilibria()
 
 # println()
 # println("Test get_minimum()")
@@ -484,7 +516,6 @@ test_select_equilibria()
 # println()
 # println("Test get_first_target")
 # test_get_first_target()
-
 
 # println()
 # println("Test findmaxperturbation()")

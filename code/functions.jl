@@ -107,16 +107,21 @@ end
 """
 build glv model
 """
-function buildglvhoi(pars, x)
-   #unpack parameters
-   alpha, r, A, B = pars
-   n = length(r)
-   eqs = r + (1 .- alpha) .* A*x
-   #add HOIs
-   for i in 1:n
-   eqs[i] += (alpha .* ( x'*B[:,:,i]*x ))[1]
-   end
-   return diagm(x) * eqs
+function buildglvhoi(pars, x, symb_pars::Bool=false)
+    n = length(pars[2])
+    if symb_pars == false
+        #unpack parameters
+        alpha, r, A, B = pars
+    else
+        alpha, _, A, B = pars
+        @var r[1:n]
+    end
+    eqs = r + (1 .- alpha) .* A*x
+    #add HOIs
+    for i in 1:n
+        eqs[i] += (alpha .* ( x'*B[:,:,i]*x ))[1]
+    end
+    return diagm(x) * eqs
 end
 
 function has_row_all_ones(matrix::Matrix{Float64}, tol::Float64=1e-6)
@@ -132,10 +137,32 @@ end
 """
 get matrix with real solutions of system of polynomials
 """
-function makeandsolve(x::Vector{Variable}, pars::Tuple, n::Int64, only_real_sols::Bool=true)
-   #make and solve new system
-   syst = System(buildglvhoi(pars, x))
-   res = solve(syst ./ x, compile = false)
+function makeandsolve(x::Vector{Variable}, 
+                      pars::Tuple, 
+                      n::Int64, 
+                      perturbation::Vector{Float64},
+                      only_real_sols::Bool=true,
+                      mode::String="all")
+    if mode == "all"
+        # Form parameters of perturbed system with alpha value
+        rpert = pars[2] + perturbation
+        parsnew = (pars[1], rpert, pars[3], pars[4])
+        #make and solve new system, getting all solutions (or all real solutions)
+        syst = System(buildglvhoi(parsnew, x))
+        res = solve(syst ./ x, compile = false)
+    elseif mode == "follow"
+        if perturbation[2] == 0
+            perturbation[2] += 0.001
+        end
+        #solve the system by using parameter homotopy using the target equilibrium as initial point
+        @var r[1:n]
+        syst = System(buildglvhoi(pars, x, true), parameters = r)
+        start_solutions = [ones(n)]
+        res = solve(syst, start_solutions; 
+                    start_parameters = pars[2],
+                    target_parameters = pars[2] .+ perturbation)
+    end
+    #pick which solutions to return
     if only_real_sols
         solvecs = real_solutions(res)
         if nreal(res) == 0
@@ -146,6 +173,14 @@ function makeandsolve(x::Vector{Variable}, pars::Tuple, n::Int64, only_real_sols
     else
         #return all roots
         solvecs = solutions(res)
+        if mode == "follow"
+            println(res)
+            println(syst)
+            print("result with mode ", mode, " is ", results(res))
+            println(start_solutions)
+            println(pars[2])
+            println(pars[2] .+ perturbation)
+        end
         solmat = mapreduce(permutedims, vcat, solvecs)
     end
    return solmat
@@ -353,11 +388,10 @@ function get_first_target(parameters::Tuple,
                           x::Vector{Variable},
                           n::Int64, 
                           tol::Float64)
-    all_equilibria = perturbondisc(perturbations, rho, parameters, n, x, true)
+    perturbed_equilibria = perturbondisc(perturbations, rho, parameters, n, x, true, true, "follow")
     #confirm that indeed they are different and positive
-    first_target = select_equilibria(all_equilibria, 
-                                     ones(nperturbations, n),
-                                     "positive")
+    first_target = select_feasible_equilibria(perturbed_equilibria, 
+                                              ones(nperturbations, n))
     is_target_valid = check_rows_positive_and_unique(first_target, tol)
     if is_target_valid 
         return first_target
@@ -378,19 +412,20 @@ function confirm_solution(rhob::Float64,
                           n::Int64,
                           x::Vector{Variable},
                           nperturbations::Int64,
-                          target::Matrix{Float64}, mode::String, 
+                          target::Matrix{Float64}, 
+                          mode::String, 
                           tol::Float64)
     #initialize xcheck   
     xcheck = 1.0e6
     for rho in range(rhob, tol, 10)
-        all_equilibria = perturbondisc(perturbations, rho, pars, n, x, true)
+        perturbed_equilibria = perturbondisc(perturbations, rho, pars, n, x, true, true, mode)
         #some could be non-feasible, if mode == "follow
-        xcheck = get_minimum(all_equilibria, nperturbations, target, mode)
+        xcheck = get_minimum(perturbed_equilibria, nperturbations, target)
         #println("Backward checking: ", rho, "x = ", xcheck)
         #recalculate if negative to make sure it's not a mistake of the package (sometimes it happens)
         if xcheck < -tol
-            equilibria = perturbondisc(perturbations, rho, pars, n, x, true)
-            xcheck = get_minimum(all_equilibria, nperturbations, target, mode)
+            equilibria = perturbondisc(perturbations, rho, pars, n, x, true, true, mode)
+            xcheck = get_minimum(perturbed_equilibria, nperturbations, target)
         end
         #if at some point x becomes negative or complex again, then another 0 exists
         if xcheck < -tol
@@ -405,6 +440,8 @@ Perform a disc perturbation of the growth rate in `pars` of radius `rho`,
 and get the equilibrium responses after perturbation. When `interrupt == true`, 
 the program will stop whenever there is a perturbation generating any non-feasible solutions.
 Equilibria will be stored as Matrix{Complex{Float64}} when only_real_sols is false.
+if mode == follows, the system is solved using a parameter homotopy that allows tracking
+trajectories of the focal equilibrium
 """
 function perturbondisc(perturbations::Matrix{Float64},
                        rho::Float64,
@@ -412,22 +449,18 @@ function perturbondisc(perturbations::Matrix{Float64},
                        n::Int64,
                        x::Vector{Variable},
                        interrupt::Bool,
-                       only_real_sols::Bool=true)
+                       only_real_sols::Bool=true,
+                       mode::String="all")
     # Initialize equilibria based on the only_real_sols flag
     equilibria = only_real_sols ? Vector{Matrix{Float64}}() : Vector{Matrix{Complex{Float64}}}()
     nperts = size(perturbations, 1)
-
     # Project perturbations to current radius
     perturbations_rho = rho * perturbations
     for i in 1:nperts
         pert_i = perturbations_rho[i, :]
 
-        # Form parameters of perturbed system with alpha value
-        rpert = parameters[2] + pert_i
-        parsnew = (parameters[1], rpert, parameters[3], parameters[4])
-
         # Solve system (get solutions based on the only_real_sols flag)
-        solmat = makeandsolve(x, parsnew, n, only_real_sols)
+        solmat = makeandsolve(x, parameters, n, pert_i, only_real_sols, mode)
 
         # Count solutions (real, feasible)
         nsols = length(solmat)
@@ -511,9 +544,8 @@ If mode == "follow", the row in each matrix of perturbed equilibria closest to t
 If mode == "positive", a positive equilibrium is selected if the equilibrium resulting from follow is non-feasible.
 If this mode yields a negative equilibrium, then the followed equilibrium is returned.
 """
-function select_equilibria(array_of_matrices::Vector{<:AbstractMatrix}, 
-                           target_matrix::AbstractMatrix,
-                           mode::String)
+function select_feasible_equilibria(array_of_matrices::Vector{<:AbstractMatrix},
+                                    target_matrix::AbstractMatrix)
     k = length(array_of_matrices)   # Number of matrices
 
     # Determine the type of the first matrix to initialize matched_matrix accordingly
@@ -531,21 +563,14 @@ function select_equilibria(array_of_matrices::Vector{<:AbstractMatrix},
             continue  # Skip further processing for this iteration
         end
 
-        if mode == "follow"
-            # Find the index of the closest row in the corresponding matrix
-            row_index = closest_row(target_row, matrix_i)
-        elseif mode == "positive"
-            # Find the closest positive row
-            row_index = positive_row(target_row, matrix_i)
-            row_i = matrix_i[row_index, :]
-            # Check if the selected row is feasible; if not, revert to follow mode
-            if row_index == 0 || (row_i isa Vector{Complex{Float64}})
-                row_index = closest_row(target_row, matrix_i)  # Fallback to follow mode
-            end
-        else
-            error("Don't know this mode of select equilibria")
+        # Find the closest positive row
+        row_index = positive_row(target_row, matrix_i)
+        row_i = matrix_i[row_index, :]
+        # Check if the selected row is feasible; if not, revert to follow mode
+        if row_index == 0 || (row_i isa Vector{Complex{Float64}})
+            row_index = closest_row(target_row, matrix_i)  # Fallback to follow mode
         end
-        
+
         matched_matrix[i, :] = matrix_i[row_index, :]
     end
     return matched_matrix
@@ -556,23 +581,20 @@ given the array of matrices with equilibria from all perturbations, select the m
 after some filtering based on the mode perturbations and result of perturbations
 This function is only called inside findmaxperturbation, which assumes interrupt == true always
 therefore, the selected_equilibria should always contain positive rows if the mode of selection is
-positive. Otherwise the perturbation protocol should have not finished, and all_equilibria should
+positive. Otherwise the perturbation protocol should have not finished, and perturbed_equilibria should
 be shorter than the number of perturbations.
 """
-function get_minimum(all_equilibria::Vector{Matrix{Float64}},
+function get_minimum(perturbed_equilibria::Vector{Matrix{Float64}},
                      nperturbations::Int64,
-                     target_equilibria::Matrix{Float64},
-                     mode::String
+                     target_equilibria::Matrix{Float64}
                      )
-    if length(all_equilibria) < nperturbations
+    if length(perturbed_equilibria) < nperturbations
         #the perturbation protocol stopped early (non-feasibility encountered)
         xmin = -1.0
     else 
         #all perturbations yielded feasible equilibria
-        selected_equilibria = select_equilibria(all_equilibria,
-                                                target_equilibria,
-                                                mode)
-        #this minimum could be negative if mode=="follow"
+        selected_equilibria = select_feasible_equilibria(perturbed_equilibria,
+                                                         target_equilibria)
         xmin = minimum(selected_equilibria)
     end
     return xmin
@@ -595,29 +617,24 @@ function findmaxperturbation(rho1::Float64, rho2::Float64,
     global rhob = bisect(rho1, rho2)
     #perform disc perturbation of radius rb
     while abs(rho1 - rho2) > tol
-        all_equilibria = perturbondisc(perturbations, rhob, parameters, n, x, true)
+        perturbed_equilibria = perturbondisc(perturbations, rhob, parameters, n, x, true, true, mode)
         #if perturbation protocol stopped early, there were non-feasible solutions
-        if length(all_equilibria) < nperturbations
+        if length(perturbed_equilibria) < nperturbations
             #the perturbation protocol stopped early (non-feasibility encountered)
             xmin = -1.0
         else 
             #otherwise there are at least one feasible equilibria per perturbation
-            selected_equilibria = select_equilibria(all_equilibria,
-                                                    target_equilibria,
-                                                    mode)
+            selected_equilibria = select_feasible_equilibria(perturbed_equilibria, target_equilibria)
             #this minimum could be negative after selection if mode=="follow"
             xmin = minimum(selected_equilibria)
-            if (xmin > 0)
-                #assign new target equilibria if all perturbations are feasible
-                target_equilbria = selected_equilibria
-            end
         end
         #println("[", rho1, ",", rho2, "] with xmin = ", xmin, " at rhob = ", rhob)
         #redefine limits
         rho1, rho2 = getlims(rho1, rho2, rhob, xmin)
         #if solution is found, check that no other solutions exist for smaller rs
         if abs(rho1 - rho2) < tol
-            xmin = confirm_solution(rhob, perturbations, parameters, n, x, nperturbations, target_equilibria, mode, tol)
+            xmin = confirm_solution(rhob, perturbations, parameters, n, x, 
+                                    nperturbations, target_equilibria, mode, tol)
             if xmin < -tol
                 rho1 = 0.0
                 rho2 = rhob
@@ -626,7 +643,7 @@ function findmaxperturbation(rho1::Float64, rho2::Float64,
         return findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters,
                                    n, x, target_equilibria, mode, tol)
     end
-    return rhob, target_equilibria
+    return rhob
 end
 
 """
@@ -646,7 +663,7 @@ function average_number_positive_rows(array_of_matrices::Vector{<:AbstractMatrix
     return mean(n_positive_rows)
 end
 
-function testrmax(perturbations, parameters, n, x, interrupt, rmax)
+function testrmax(perturbations, parameters, n, x, interrupt, rmax, mode)
     # Define the perturbation vector
     println("Rmax is: ", rmax)
     perturbation_vector = collect((.85 * rmax):(0.05 * rmax):(1.15 * rmax))
@@ -656,7 +673,7 @@ function testrmax(perturbations, parameters, n, x, interrupt, rmax)
 
     for r in perturbation_vector
         # Call perturbondisc for each perturbation
-        result = perturbondisc(perturbations, r, parameters, n, x, false)
+        result = perturbondisc(perturbations, r, parameters, n, x, false, mode)
         flatresult = vcat(result...)
         push!(results, vcat(result...))
     end
