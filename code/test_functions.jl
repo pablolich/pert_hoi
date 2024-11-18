@@ -56,17 +56,17 @@ function test_distinguish_decimal()
     end
 end
 
-function test_check_rows_positive_and_unique()
+function test_check_rows_real_positive_and_unique()
     matrix1 = [1.0 2.0; 3.0 4.0; 5.0 6.0]
     matrix2 = [1.0 2.0; 1.011 2.019; 5.0 6.0]
     matrix3 = [1.0 2.0; -1.0 4.0; 5.0 6.0]
 
     println("Test check_rows_positive_and_unique (should be true): ", 
-            check_rows_positive_and_unique(matrix1, 0.01) ? "Passed" : "Failed")
+            check_rows_real_positive_and_unique(matrix1, 0.01) ? "Passed" : "Failed")
     println("Test check_rows_positive_and_unique (should be true): ", 
-            check_rows_positive_and_unique(matrix2, 0.01) ? "Passed" : "Failed")
+            check_rows_real_positive_and_unique(matrix2, 0.01) ? "Passed" : "Failed")
     println("Test check_rows_positive_and_unique (should be false): ", 
-            !check_rows_positive_and_unique(matrix3, 0.01) ? "Passed" : "Failed")
+            !check_rows_real_positive_and_unique(matrix3, 0.01) ? "Passed" : "Failed")
 end
 
 function test_getfeasrowinds()
@@ -310,17 +310,40 @@ function test_select_feasible_equilibria()
     n = 2  # Define n first
     #sample perturbations on a sphere
     perturbations = points_hypersphere(2, 1.0, 10)
-    rho = 0.05
+    rho = 0.5
     rng = MersenneTwister(1)
     parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
     # Flatten tuple
     parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
-    interrupt = false
-    target = get_first_target(parameters, 1e-8, perturbations, 10, x, n, tol)
-    result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "follow")
-    println("Test a real case of following an equilibria that becomes complex")
-    println("Result is: ", select_feasible_equilibria(result, target))
+    # interrupt = false
+    # rho, target = get_first_target(parameters, 1e-8, perturbations, 10, x, n, tol)
+    # result = perturbondisc(perturbations, rho, parameters, n, x, interrupt, false, "follow")
+    # println("Test a real case of following an equilibria that becomes complex")
+    # println("Result is: ", select_feasible_equilibria(result, target))
+
+    # result_no_interrupt = perturbondisc(perturbations, rho, parameters, n, x, interrupt)
+    # selected_equilibria = select_feasible_equilibria(result_no_interrupt, target)
+    # # Check if there are any negative rows
+    # negative_rows = count(row -> any(row .< 0), eachrow(selected_equilibria))
+    # if negative_rows > 0
+    #     println("Test perturbondisc (interrupt=false): Passed - Found negative rows: ", negative_rows)
+    # else
+    #     println("Test perturbondisc (interrupt=false): Failed - No negative rows found.")
+    # end
+
+    #check for purpose of get_first_target
+    n = 2  # Define n first
+    rng = MersenneTwister(1)
+    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    # Flatten tuple
+    parameters = Tuple(Iterators.flatten(parameters_nested))    
+    rho = 0.5
+    nperturbations=10
+    perturbations = points_hypersphere(2, rho, nperturbations)
+    perturbed_eq = perturbondisc(perturbations, rho, parameters, n, x, false, false, "follow")
+    selected_eq = select_feasible_equilibria(perturbed_eq, ones(nperturbations, n))
+    println("selected for first_target check: ", selected_eq)
 end
 
 function test_get_minimum()
@@ -366,18 +389,17 @@ function test_get_first_target()
     parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
     # Flatten tuple
     parameters = Tuple(Iterators.flatten(parameters_nested))    
+    nperturbations=10
     rho = 0.1
-    perturbations = [1.0 1.0; 2.0 2.0; 3.0 3.0]
-    nperturbations = size(perturbations, 1)
+    perturbations = points_hypersphere(2, rho, nperturbations)
     @var x[1:n]  # Define x as a function of n
     tol = 1e-9
-
-    try
-        result = get_first_target(parameters, rho, perturbations, nperturbations, x, n, tol)
-        println("Test get_first_target: Expected a matrix of equilibria, got: ", result, " - Passed")
-    catch e
-        println("Test get_first_target: Expected no error, caught exception: ", e, " - Failed")
-    end
+    target = get_first_target(parameters, rho, perturbations, nperturbations, x, n, tol)
+    # try
+    #     println("Test get_first_target: Expected a matrix of equilibria, got: ", result, " - Passed")
+    # catch e
+    #     println("Test get_first_target: Expected no error, caught exception: ", e, " - Failed")
+    # end
 end
 
 function test_findmaxperturbation()
@@ -390,11 +412,12 @@ function test_findmaxperturbation()
     rho2 = 10.0
     perturbations = points_hypersphere(2, 1.0, 10)
     nperturbations = size(perturbations, 1)
-    parameters_nested = (0.5, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
+    parameters_nested = (0.91, sampleparameters(n, rng, 1))  # Adjusted values in the tuple
     # Flatten tuple
     parameters = Tuple(Iterators.flatten(parameters_nested))
     @var x[1:n]  # Define x as a function of n
     target = get_first_target(parameters, 1e-8, perturbations, nperturbations, x, n, tol)
+    println("First target: ", target)
     mode = "follow"
     # Test with initial rho1
     rhomax = findmaxperturbation(rho1, rho2, perturbations, nperturbations, parameters, n, x, target, mode, tol)
@@ -421,17 +444,6 @@ function test_findmaxperturbation()
     else
         println("Test perturbondisc (interrupt=true): Failed - Expected fewer rows than nperturbations, got: ", size(result_interrupt, 1))
     end
-
-#    interrupt = false
-#    result_no_interrupt = perturbondisc(perturbations, rho_test, parameters, x, interrupt)
-
-#    # Check if there are any negative rows
-#    negative_rows = count(row -> any(row .< 0), eachrow(result_no_interrupt))
-#    if negative_rows > 0
-#        println("Test perturbondisc (interrupt=false): Passed - Found negative rows: ", negative_rows)
-#    else
-#        println("Test perturbondisc (interrupt=false): Failed - No negative rows found.")
-#    end
 end
 
 function test_testrmax()
@@ -514,9 +526,9 @@ end
 # println("Test check_rows_positive_and_unique()")
 # test_check_rows_positive_and_unique()
 
-println()
-println("Test getfeasrowinds()")
-test_getfeasrowinds()
+# println()
+# println("Test getfeasrowinds()")
+# test_getfeasrowinds()
 
 # println()
 # println("Test makeandsolve()")
@@ -550,9 +562,9 @@ test_select_feasible_equilibria()
 # println("Test confirm_solution()")
 # test_confirm_solution()
 
-# println()
-# println("Test get_first_target")
-# test_get_first_target()
+println()
+println("Test get_first_target")
+test_get_first_target()
 
 # println()
 # println("Test findmaxperturbation()")

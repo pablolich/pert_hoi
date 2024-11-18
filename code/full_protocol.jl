@@ -22,7 +22,7 @@ rng = MersenneTwister(1)
 
 @time begin
     for sim in 1:nsim #perform many replicates
-        for n in 2:nmax #loop through system sizes
+        for n in 4:nmax #loop through system sizes
             #declare symboilic vector of species abundances
             @var x[1:n]
             #sample parameters
@@ -35,11 +35,13 @@ rng = MersenneTwister(1)
                 pars = (alpha, r0, A, B)
                 target = get_first_target(pars, 1e-4, perturbations, nperturbations, x, n, tol)
                 #find critical radius
+                println("Find rho critical following")
                 crit_radius = findmaxperturbation(tol, 10.0, perturbations, 
                                                                    nperturbations, 
                                                                    pars, n, x,
                                                                    target,
                                                                    "follow", tol)
+                println("Find rho critical anywhere")
                 crit_radius_pos = findmaxperturbation(tol, 10.0, perturbations, 
                                                                            nperturbations, 
                                                                            pars, n, x,

@@ -151,9 +151,6 @@ function makeandsolve(x::Vector{Variable},
         syst = System(buildglvhoi(parsnew, x))
         res = solve(syst ./ x, compile = false)
     elseif mode == "follow"
-        if perturbation[2] == 0
-            perturbation[2] += 0.001
-        end
         #solve the system by using parameter homotopy using the target equilibrium as initial point
         @var r[1:n]
         syst = System(buildglvhoi(pars, x, true), parameters = r)
@@ -277,13 +274,16 @@ function zero_out_after_position(num::Float64, i::Int)
     n_digits_whole = length(num_str[1:(decimal_pos-1)])
     n_digits_decimal = length(num_str[(decimal_pos+1):end])
     
-    #if the last non-zero comes before the decimal position, its easy:
-    if i < decimal_pos 
-        return parse(Float64, num_str[1:i]*"0"^(n_digits_whole - i))
+    if i == 0
+        #the index is 0, don't zero out any elements
+        return num
     elseif i == decimal_pos
         elements_after_dot = i - n_digits_whole
         #i is at the decimal point or further down
         return parse(Float64, num_str[1:n_digits_whole]*"."*num_str[(decimal_pos+1):(decimal_pos+elements_after_dot)])
+    elseif i < decimal_pos 
+        #the last non-zero comes before the decimal position, its easy:
+        return parse(Float64, num_str[1:i]*"0"^(n_digits_whole - i))
     else 
         #i is beyond the decimal place
         elements_after_dot = i - n_digits_whole
@@ -319,7 +319,7 @@ function first_different_digit_position(num1::Float64, num2::Float64)
         return min_length + 1  # Return position after the last matched digit
     end
 
-    return nothing  # Return nothing if numbers are identical
+    return 0  # Return 0 if numbers are identical
 end
 
 """
@@ -343,19 +343,27 @@ function distinguish_decimal(number::Float64, prec::Float64)
 end
 
 """
-Given a "nperturbations" by "n" matrix, and determines if all the rows are positive 
+Given a "nperturbations" by "n" matrix, determine if all the rows are positive 
 (that is, all have only elements greater than 0), and different from each other 
 (that is, each row is unique within a certain tolerance). 
-If these two conditions are met, return true. otherwise return false.
+If any row is negative, returns -1
+If any row is not unique, returns 0
+If neither occurs, returns 1
 """
-function check_rows_positive_and_unique(matrix::Matrix{Float64}, tolerance::Float64)
-    # Check if all rows are positive
-    all_positive = all(all(row .> 0) for row in eachrow(matrix))
-
-    if !all_positive
-        return false
+function check_rows_real_positive_and_unique(matrix::Matrix{ComplexF64}, tolerance::Float64)
+    #go through all elements to verify if they are real and positive
+    for row in eachrow(matrix)  # Loop through each row
+        for element in row  # Loop through each element in the row
+            # Check if imaginary part is within tolerance and real part is positive
+            if abs(imag(element)) > tolerance || real(element) <= 0 || isnan(real(element))
+                return -1  # Return false if any element doesn't meet the criteria
+            end
+        end
     end
-
+    #if we get here it means all rows are postive and real.
+    #now we check that they are unique
+    #transform the matrix to a real matrix
+    matrix = real.(matrix)
     # Set to track unique rows (rounded for tolerance)
     unique_rows = Set{Vector{Float64}}()
 
@@ -364,18 +372,18 @@ function check_rows_positive_and_unique(matrix::Matrix{Float64}, tolerance::Floa
         row_up_to_precision =  [distinguish_decimal(element, tolerance) for element in row]
         # Check if the rounded row is already in the set
         if row_up_to_precision in unique_rows
-            return false  # Not unique
+            return 0  # Not unique
         end
 
         # Add the rounded row to the set
         push!(unique_rows, row_up_to_precision)
     end
-
-    return true
+    #if we get here, we have passed all tests, so we return 1
+    return 1
 end
 
 """
-gets the first set of perturbations. all must be positive, but different (within tolerance)
+gets the first set of perturbations. all must be positive, but different from each other (within tolerance)
 """
 function get_first_target(parameters::Tuple, 
                           rho::Float64, 
@@ -384,19 +392,24 @@ function get_first_target(parameters::Tuple,
                           x::Vector{Variable},
                           n::Int64, 
                           tol::Float64)
-    perturbed_equilibria = perturbondisc(perturbations, rho, parameters, n, x, true, true, "follow")
+    perturbed_equilibria = perturbondisc(perturbations, rho, parameters, n, x, false, false, "follow")
     #confirm that indeed they are different and positive
     first_target = select_feasible_equilibria(perturbed_equilibria, 
                                               ones(nperturbations, n))
-    is_target_valid = check_rows_positive_and_unique(first_target, tol)
-    if is_target_valid 
-        return first_target
-    else
-        println("First target: ", first_target)
-        error("non valid first target. either contains negative elements (tolerance too big)
-               or too similar elements (tolerance too small). Check first_target and change
-               tolerance accordingly.")
-    end
+    is_target_valid = check_rows_real_positive_and_unique(first_target, tol)
+    while is_target_valid  != 1
+        if is_target_valid == -1
+            #some rows are negative or complex, reduce perturbation
+            rho = rho/2
+        else
+            #at least one row is not unique, increase perturbation
+            rho = 2*rho
+        end
+        perturbed_equilibria = perturbondisc(perturbations, rho, parameters, n, x, false, false, "follow")
+        is_target_valid = check_rows_real_positive_and_unique(first_target, tol)
+        first_target = select_feasible_equilibria(perturbed_equilibria, ones(nperturbations, n))
+    end 
+    return real.(first_target)
 end
 
 """
@@ -535,10 +548,10 @@ function positive_row(target_vector::AbstractVector, matrix::AbstractMatrix)
 end
 
 """
-Given a collection of equilibra and a target, select equilibria based on criteria in mode.
-If mode == "follow", the row in each matrix of perturbed equilibria closest to the corresponding target is selected.
-If mode == "positive", a positive equilibrium is selected if the equilibrium resulting from follow is non-feasible.
-If this mode yields a negative equilibrium, then the followed equilibrium is returned.
+Given a collection of equilibra and a target, select equilibria as follows:
+Aim to return all positive rows.
+If no positive rows exist for a given perturbation, return the closest row to th
+target equilibria. 
 """
 function select_feasible_equilibria(array_of_matrices::Vector{<:AbstractMatrix},
                                     target_matrix::AbstractMatrix)
@@ -562,11 +575,9 @@ function select_feasible_equilibria(array_of_matrices::Vector{<:AbstractMatrix},
         # Find the closest positive row
         row_index = positive_row(target_row, matrix_i)
         row_i = matrix_i[row_index, :]
-        # Check if the selected row is feasible; if not, revert to follow mode
         if row_index == 0 || (row_i isa Vector{Complex{Float64}})
             row_index = closest_row(target_row, matrix_i)  # Fallback to follow mode
         end
-
         matched_matrix[i, :] = matrix_i[row_index, :]
     end
     return matched_matrix
