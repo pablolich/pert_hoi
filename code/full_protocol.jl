@@ -5,7 +5,7 @@ include("functions.jl")
 
 constrain_type = 1 #tractability and equilibrium constrains are on.
 #number of species
-nmax = 4
+nmax = 5
 #order of interactions
 #to be coded...
 #values of alpha
@@ -22,7 +22,7 @@ rng = MersenneTwister(1)
 
 @time begin
     for sim in 1:nsim #perform many replicates
-        for n in 4:nmax #loop through system sizes
+        for n in 5:nmax #loop through system sizes
             #declare symboilic vector of species abundances
             @var x[1:n]
             #sample parameters
