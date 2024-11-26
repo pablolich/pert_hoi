@@ -2,6 +2,7 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt 
 from mpl_toolkits.mplot3d import Axes3D
+import csv
 
 def potential_energy(flat_positions, n, k):
     """Calculate the potential energy of the given positions."""
@@ -86,6 +87,10 @@ def thompson_problem_unconstrained(n, k, initial_positions, regularization):
     """
     Solves the unconstrained thompson problem by using regularization parameter
     """
+    if n*k < 1000:
+        methodtouse = "BFGS"
+    else:
+        methodtouse = "L-BFGS-B"
     result = minimize(regularized_potential_vec,
                       initial_positions.flatten(),
                       args=(n,k,regularization),
@@ -173,47 +178,77 @@ def nearest_neighbor_distance(positions):
 
     return distances
 
-# Example usage
-n = 500  # Number of points
-k = 5   # Number of dimensions
-reg_max = 500
-n_iterations = 10
+def main():
+    n = 500  # Number of points
+    kmax = 5   # Number of dimensions
+    kvec = np.arange(2, kmax + 1)
+    num_runs = 10
 
-# Sample initial positions
-initial_positions = np.random.randn(n, k)
-initial_positions /= np.linalg.norm(initial_positions, axis=1)[:, np.newaxis]
-initial_nn_distances = nearest_neighbor_distance(initial_positions)
-print("Potential energy non-vectorized: ", potential_energy(initial_positions, n, k))
-print("Potential energy vectorized: ", potential_energy_vec(initial_positions, n, k))
+    for k in kvec:
+        print("Minimizing for dimension: ", k)
 
-print("Regularized potential non-vectorized: ", regularized_potential(initial_positions, n, k, 1))
-print("Regularized potential vectorized: ", regularized_potential_vec(initial_positions, n, k, 1))
-positions, energy = thompson_problem(n, k, initial_positions)
+        best_positions = None
+        best_energy = float('inf')
+
+        # Run minimization several times and track the best result
+        for _ in range(num_runs):
+            # Sample initial positions
+            initial_positions = np.random.randn(n, k)
+            initial_positions /= np.linalg.norm(initial_positions, axis=1)[:, np.newaxis]  # Normalize
+
+            positions, energy = thompson_problem(n, k, initial_positions)
+
+            # If the current run gives a lower energy, update the best result
+            if energy < best_energy:
+                best_energy = energy
+                best_positions = positions
+
+        filename = f"positions_n_{k}.csv"
+        #save positions to file
+        # Save the matrix to a CSV file
+        with open(filename, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerows(positions)
+
+        # Check the nearest neighbor distances
+        nn_distances = nearest_neighbor_distance(best_positions)
+        initial_nn_distances = nearest_neighbor_distance(initial_positions)
+
+
+        # Create the histogram
+        plt.figure(figsize=(10, 6))
+        plt.hist(initial_nn_distances,  alpha=0.5, label='Vector 1', color='blue')
+        plt.hist(nn_distances, alpha=0.5, label='Vector 2', color='orange')
+        plot_file_name = f"histogram_distances_n{k}.pdf"
+        plt.savefig(plot_file_name, format = 'pdf')
+ 
+    return 0
+main()
 
 #print("Optimized Positions:\n", positions)
-print("Minimum Potential Energy:", energy)
+#print("Minimum Potential Energy:", energy)
 
 #now solve the same problem for the unconstrained optimization
-positions_uncnstr = iterative_minimization(initial_positions, reg_max, 
-                                           n_iterations ,n, k, 
-                                           initial_positions)
+#positions_uncnstr = iterative_minimization(initial_positions, reg_max, 
+#                                           n_iterations ,n, k, 
+#                                           initial_positions)
 #print("Optimized Positions from unconstrained minimization:\n", positions_uncnstr)
-print("Minimum Potential Energy:", potential_energy(positions_uncnstr, n, k))
+#print("Minimum Potential Energy:", potential_energy(positions_uncnstr, n, k))
+#
+## Check the nearest neighbor distances
+#nn_distances = nearest_neighbor_distance(positions)
+#print("Nearest Neighbor Distances:", nn_distances)
+#nn_distances_unc = nearest_neighbor_distance(positions_uncnstr)
+#print("Nearest Neighbor Distances:", nn_distances_unc)
 
-# Check the nearest neighbor distances
-nn_distances = nearest_neighbor_distance(positions)
-print("Nearest Neighbor Distances:", nn_distances)
-nn_distances_unc = nearest_neighbor_distance(positions_uncnstr)
-print("Nearest Neighbor Distances:", nn_distances_unc)
 
-
-# Create the histogram
-plt.figure(figsize=(10, 6))
-plt.hist(initial_nn_distances,  alpha=0.5, label='Vector 1', color='blue')
-plt.hist(nn_distances, alpha=0.5, label='Vector 2', color='orange')
-plt.show()
-
+## Create the histogram
+#plt.figure(figsize=(10, 6))
+#plt.hist(initial_nn_distances,  alpha=0.5, label='Vector 1', color='blue')
+#plt.hist(nn_distances, alpha=0.5, label='Vector 2', color='orange')
+#plt.show()
+ 
 # Plot the results if k <= 3
-if k <= 3:
-    plot_results(initial_positions, positions)
-
+#if k <= 3:
+#    plot_results(initial_positions, positions)
+#

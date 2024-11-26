@@ -39,3 +39,8 @@ Fill out:
 #### Nov 14,2024
 
 	It seems like tha parameter homotopy is having troubles when the solutions become complex. But I should not mind since these cases need to be discarded. Make sure that whenever I don't find anything it is indeed because there are no real solutions, and if so, just treat as complex solutions
+
+#### Nov 20,2024
+
+	Save output of Thompson problem to be loaded by my program. Perform thompson problem up to n=6, for 500 points each.
+	Code the higher order interaction models with order of interactions d = 4. Have two parameters, alpha and beta, and vary them in the simplex

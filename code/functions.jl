@@ -219,7 +219,8 @@ end
 generate random points on the surface of a n-dimensional hypersphere of radius rho.
 when dimension is 2, the points are evenly distributed
 """
-function points_hypersphere(dim::Int, rho::Float64, num_points::Int)
+function points_hypersphere(dim::Int, rho::Float64, num_points::Int, load = true)
+    #no load from file, sample points at random and put them on the sphere
     if dim == 2
         points = zeros(num_points, 2)  # Initialize matrix to store points
         for i in 1:num_points
@@ -229,10 +230,14 @@ function points_hypersphere(dim::Int, rho::Float64, num_points::Int)
         end
         return points
     else
-        points = randn(num_points, dim)  # Generate random points in dim-dimensional space
-        norms = [norm(points[i,:]) for i in 1:num_points]  # Calculate norms of each point
-        scaled_points = rho * (points ./ norms)  # Scale points to lie on the surface of the sphere of radius rho
-        return scaled_points
+        if load == true
+            return readdlm("positions_n_"*string(dim)*".csv", ',')
+        else
+            points = randn(num_points, dim)  # Generate random points in dim-dimensional space
+            norms = [norm(points[i,:]) for i in 1:num_points]  # Calculate norms of each point
+            scaled_points = rho * (points ./ norms)  # Scale points to lie on the surface of the sphere of radius rho
+            return scaled_points
+        end
     end
 end
 
