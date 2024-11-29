@@ -28,7 +28,7 @@ function getlims(x0::Float64, x1::Float64, xb::Float64, xmin::Float64)
 end
 
 """
-get 
+get num_points equispaced in a circle of radius 1
 """
 function get_angles(num_points::Int64)
     points = zeros(num_points, 2)  # Initialize matrix to store points
@@ -38,6 +38,53 @@ function get_angles(num_points::Int64)
         points[i, 2] = sin(theta)  # Calculate y coordinate
     end
     return points
+end
+
+"""
+build glv model
+"""
+function buildglvhoi(pars::Tuple, x::Vector{Variable}, symb_pars::Bool=false)
+    n = length(pars[2])
+    if symb_pars == false
+        #unpack parameters
+        alpha, r, A, B = pars
+    else
+        #unpack parameters keeping r as a variable
+        alpha, _, A, B = pars
+        @var r[1:n]
+    end
+    eqs = r + (1 .- alpha) .* A*x
+    #add HOIs
+    for i in 1:n
+        eqs[i] += (alpha .* ( x'*B[:,:,i]*x ))[1]
+    end
+    return diagm(x) * eqs
+end
+
+"""
+build new tuple of parameters given the old and the perturbation
+"""
+function get_new_pars(old_pars::Tuple, perturbation::Tuple)
+    #get length of the tuple
+    n_par_group = length(old_pars)
+    for i in 1:n_par_group
+        old_pars[i] += perturbation[i]
+    end
+    return old_pars
+end
+
+"""
+given parameters, variables, solve the system using parameter homotopy
+"""
+function solve_system(vars, pars, pert_pars)
+    n = length(pars[2]) #use growth rates to get number of species
+    syst = System(buildglvhoi(pars, x, true), parameters = r) #build system keeping r as implicit
+    start_solutions = [ones(n)]
+    new_pars = get_new_pars(pars, pert_pars)
+    res = solve(syst, start_solutions=[ones(n)]; 
+                start_parameters = pars[2],
+                target_parameters = get_new_pars)
+    return
 end
 
 """
