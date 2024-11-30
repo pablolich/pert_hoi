@@ -62,6 +62,59 @@ function buildglvhoi(pars::Tuple, x::Vector{Variable}, symb_pars::Bool=false)
 end
 
 """
+given a polynomial and a mode:
+if mode == "order" then return the indices of monomials order focal_monomial
+if mode == "species" return the indieces of the monomials containing the variable in focal_monomial
+if mode == "both" then return the intersection of the two, so only the coefficients of order focal_monomial[1], 
+in which the species focal_monomial[2] is involved.
+IMPORTANT: if mode is both, then the length of focal_monomial must be 2, in any other case it must be 1
+"""
+function get_ind_coeffs_subs(polynomial::Expression, x::Vector{Variable}, mode::String, focal_monomial::Vector{Int64})
+    inds_order = []
+    inds_species = []
+    #get the exponents of each variable in each monomial and the associated coefficients
+    exponents, coeffs = exponents_coefficients(polynomial, x)
+    #summ the exponents to determine the order of each monomial
+    order_monomials = vec(sum(exponents, dims = 1)) #vectorize too
+    if mode == "order"  
+        #find positions of monomials of order focal_monomial
+        inds_order = findall(x -> x == focal_monomial[1], order_monomials) 
+        return inds_order
+    elseif mode == "species"
+        #focal_monomial should be interpreted as an integer in [0, n], where n is the number of variables
+        exps_focal_species = exponents[focal_monomial[1],:]
+        #find positions where variable focal_monomial appear
+        inds_species = findall(x -> x != 0, exps_focal_species)
+        return inds_species
+    elseif mode == "both"
+        inds_order = findall(x -> x == focal_monomial[1], order_monomials)
+        #focal_monomial should be interpreted as an integer in [0, n], where n is the number of variables
+        exps_focal_species = exponents[focal_monomial[2],:]
+        #find positions where variable focal_monomial appear
+        inds_species = findall(x -> x != 0, exps_focal_species)
+        return intersect(inds_order, inds_species)
+    else
+        throw(ErrorException("Not a valid mode to select coefficients"))
+    end
+end
+
+"""
+given ref_polynomial (a reference polynomial) with symbolic coefficients,  num_polynomial (a polynomial with 
+numeric coefficients), and a vector of coefficient indices: transform the numerical coefficients of num_polynomial 
+into the symbolic coefficients of ref_polynomial
+"""
+function num2symb(ref_polynomial::Expression, num_polynomial::Expression, x::Vector{Variable}, coeff_inds::Vector{Int64})
+    #puts the coefficients of ref_polynomial and num_polynomial into vectors
+    coeffs_ref = coefficients(ref_polynomial, x)
+    coeffs_num = coefficients(num_polynomial, x)
+    #substitute the desired coefficients into the numerical polynomial
+    for i in 1:length(coeff_inds)
+        num_polynomial = subs(num_polynomial, coeffs_num[i] => coeffs_ref[i])
+    end
+    return num_polynomial
+end
+
+"""
 build new tuple of parameters given the old and the perturbation
 """
 function get_new_pars(old_pars::Tuple, perturbation::Tuple)
@@ -83,7 +136,7 @@ function solve_system(vars, pars, pert_pars)
     new_pars = get_new_pars(pars, pert_pars)
     res = solve(syst, start_solutions=[ones(n)]; 
                 start_parameters = pars[2],
-                target_parameters = get_new_pars)
+                target_parameters = new_pars)
     return
 end
 

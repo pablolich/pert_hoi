@@ -13,7 +13,7 @@ alphavec = 0.01:0.1:0.99
 #number of points to check is fix for all n
 nperturbations = 1000
 #number of simulations for each parameter set
-nsim = 100
+nsim = 1000
 tol = 1e-9
 npointsbeyond = 10
 rhobeyond = 1.5
