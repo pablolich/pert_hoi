@@ -5,6 +5,33 @@ using IterTools
 using Random
 
 """
+generate random points on the surface of a n-dimensional hypersphere of radius rho.
+when dimension is 2, the points are evenly distributed. When dimension is greater than 2 but smaller than 5
+the points are loaded from the results of the python optimization that solves the Thompson problem in n dimensions
+"""
+function points_hypersphere(dim::Int, rho::Float64, num_points::Int, load = true)
+    #no load from file, sample points at random and put them on the sphere
+    if dim == 2
+        points = zeros(num_points, 2)  # Initialize matrix to store points
+        for i in 1:num_points
+            theta = 2π * (i - 1) / num_points  # Calculate angle for current point
+            points[i, 1] = rho * cos(theta)  # Calculate x coordinate
+            points[i, 2] = rho * sin(theta)  # Calculate y coordinate
+        end
+        return points
+    else
+        if load == true
+            return readdlm("positions_n_"*string(dim)*".csv", ',')
+        else
+            points = randn(num_points, dim)  # Generate random points in dim-dimensional space
+            norms = [norm(points[i,:]) for i in 1:num_points]  # Calculate norms of each point
+            scaled_points = rho * (points ./ norms)  # Scale points to lie on the surface of the sphere of radius rho
+            return scaled_points
+        end
+    end
+end
+
+"""
 given a polynomial and a mode:
 if mode == "order" then return the indices of monomials order focal_monomial
 if mode == "species" return the indieces of the monomials containing the variable in focal_monomial
@@ -57,6 +84,23 @@ function num2symb(ref_polynomial::Expression, num_polynomial::Expression, x::Vec
     return num_polynomial
 end
 
+"""
+given a polynomial expression and a vector its coefficients, substitute the 
+"""
+function symb2num(equations::Vector{Expression}, 
+    coeffs::Vector{Variable},
+    var_inds::Vector{Int64}, 
+    var_values::Union{Vector{Real}, Vector{Complex{Float64}}})
+    for i in 1:length(equations)
+        equations[i] = subs(equations[i], coeffs[var_inds] => var_values)
+    end
+    return equations
+end
+
+
+"""
+get a set of n dense polynomials of degree d with symbolic coefficients
+"""
 function get_ref_polynomials(
     vars::AbstractVector{<:Union{Variable,Expression}},
     d::Integer,
@@ -73,18 +117,6 @@ function get_ref_polynomials(
     end
     eqs, cmat
 end
-
-# function get_interaction_variables(ref_polynomials::Vector{Expression}, x::Vector{Variable}, coeff_inds::Vector{Int64})
-#     n_equations = length(ref_polynomials)
-#     #initialize
-#     interaction_variables = Vector{Variable}()
-#     for i in 1:n_equations
-#         syst_parameters = coefficients(ref_polynomials[i], x)[coeff_inds]
-#         variables_eq_i = [Variable(string(syst_parameters[i])) for i in 1:length(syst_parameters)]
-#         push!(interaction_variables, variables_eq_i)
-#     end
-#     return interaction_variables
-# end
 
 """
 given a list of polynomial equations with numerical coefficients, a reference polynomial, and a vector of coefficient indices
@@ -143,15 +175,42 @@ function build_parametrized_glvhoi(equations::Vector{Expression},
 end
 
 """
+    is_feasible(r::PathResult)
+
+return true if all components of r are positive
+"""
+function is_feasible(r::PathResult)
+    return all(real(r.solution) .> 0) 
+end
+
+"""
+    stopatnonfeasible(r::PathResult)
+
+return true if r is not feasible
+"""
+function stopatnonfeasible(r::PathResult)
+    #check if solution  is real
+    println("solution is: ", r.solution)
+    if !is_real(r) || !is_feasible(r)
+        return true
+    else 
+        return false
+    end
+end
+
+"""
 given a parametrized system of polynomials, an initial set of parameters, and a final set of parameters, 
-solve such system using a parameter homotopy
+solve such system using a parameter homotopy. the solution stops the moment one of the components looses positivity
+either because it becomes negative, or because it becomes complex.
 """
 function solve_parametrized(syst::System, initial_pars::Vector{Float64}, final_pars::Vector{Float64}, 
                             start_solutions::Vector{Vector{ComplexF64}})
     #create the initial equilibrium
     res = solve(syst, start_solutions; 
                 start_parameters = initial_pars,
-                target_parameters = final_pars)
+                target_parameters = final_pars,
+                catch_interrupt = false,
+                stop_early_cb = stopatnonfeasible)
     #return all roots
     solvecs = solutions(res)
     if isempty(solvecs) #solution became complex, but parameter homotopy could not follow it
@@ -186,18 +245,14 @@ function build_glvhoi(pars, x)
         eq_i = 0.0
         #loop through orders
         for j in 1:d
-            #treat order 0 and 1 separately
+            slices = repeat([Colon()], j-1)
+            #get corresponding tensor given order j
+            T_j = (pars[j])[slices..., i]
+            #create all index combinations
+            index_combinations = get_inds_tensor(n, j-1)
             if j == 1
-                eq_i += (pars[1])[i]
-            elseif j == 2
-                eq_i += (pars[2]*x)[i]
-            #for order 2 and above, do it in general
+                eq_i += T_j #treat zeroth order term separately
             else
-                slices = repeat([Colon()], j-1)
-                #get corresponding tensor given order j
-                T_j = (pars[j])[slices..., i]
-                #create all index combinations
-                index_combinations = get_inds_tensor(n, j-1)
                 for ind_comb in 1:length(index_combinations)
                     index_comb = index_combinations[ind_comb]
                     vec_vars = [x[i] for i in index_comb]
@@ -226,7 +281,7 @@ function apply_constrain(tensor::Array{Float64}, slices_sum::Vector{Float64})
     slices = repeat([Colon()], d-1)
     constrained_tensor = zeros(repeat([n], d)...)
     for i in 1:n
-	    constrained_tensor[slices...,i] .= -slices_sum/sum(tensor[slices...,i]) .* tensor[slices...,i]
+	    constrained_tensor[slices...,i] .= -slices_sum[i]/sum(tensor[slices...,i]) .* tensor[slices...,i]
     end
     return constrained_tensor
 end
@@ -236,75 +291,116 @@ sample parameters with equilibrium preserving constraints
 """
 function sample_parameters(n::Int64, order::Int64, rng::MersenneTwister)
     #sample growth rates
+    pars = []
     r = randn(rng, n)
-    pars = (r)
-    for i in 1:order
-        pars = tuple(pars..., apply_constrain(randn(rng, repeat([n], order)...), r))
+    push!(pars, r)
+    for i in 2:order
+        push!(pars, apply_constrain(randn(rng, repeat([n], i)...), r))
     end
+    pars = tuple(pars...)
     return pars
+end
+
+"""
+    get_ts_and_xs(tracker_homotopy::Tracker, start_solution::AbstractVector, t₀::Float64=1.0, t₁::Float64=0.0)
+
+given a ParameterHomotopy, an initial solution (start solution), and initial and final values of t (t0 and t1, respectively),
+construct a tracker and return the values of t and x (solution of the system) as we go from t=1 to t=0
+"""
+function get_ts_and_xs(tracker_homotopy::Tracker, start_solution::AbstractVector, t₀::Float64=1.0, t₁::Float64=0.0)
+    Xs = Vector{ComplexF64}[]
+    Ts = Vector{Foat64}[]
+    for (x, t) in iterator(tracker_homotopy, start_solution, t₀, t₁)
+        push!(Xs, x)
+        push!(Ts, t)
+    end
+    return Ts, Xs
+end
+
+"""
+given start parameters, target parameters, and set of t and x values, construct the vector of parameters corresponding 
+to the systems we traverse when doing the HomotopyContinuation
+"""
+function get_parameters_along_path(tvector::Vector{Float64}, initial_parameters::Vector{Float64}, target_parameters::Vector{Float64})
+    #initialize parameter matrix
+    ncol = length(tvec)
+    nrow = length(start_parameters)
+    parameter_matrix = zeros(nrow, ncol)
+    for j in 1:ncol
+        parameter_matrix[:,j] = tvector[i] * initial_parameters + (1 - tvector[i]) * target_parameters     
+    end
+    return parameter_matrix
+end
+
+"""
+given the values of parameters and equilibria, determine what are the parameter values leading to negative or
+complex equilibria
+"""
+function get_parameters_at_boundary(solution_matrix::Vector{ComplexF64}, parameter_matrix::Matrix{Float64}, tvector::Vector{Float64})
+    ntsteps = length(tvector)
+    critical_parameters = Vector{Float64}[]
+    critical_row = 0
+    for i in 1:ntsteps
+        solution_i = solution_matrix[i]
+        parameters_i = parameter_matrix[:, i]
+        is_solution_feasible = all(x -> real(x) > 0 && imag(x) == 0, solution_i)
+        if !is_solution_feasible
+            return parameters_i[:, i-1]
+        end
+    end
 end
 
 
 #test all functions 
 
 n = 2
-r = randn(2)
-A = randn(2,2)
-B = randn(2,2,2)
+d = 3
+rng = MersenneTwister(1)
 
-pars = (r, A, B)
+pars = sample_parameters(2, 3, rng)
+
+#get perturbations on the unit sphere
+
+perts = points_hypersphere(2, 1.0, 10)
+rhomax = 0.5
 
 @var  x[1:2]
 @var α[1:2]
 
 eqs = build_glvhoi(pars, x)
 ref_eqs, coeffs_mat = get_ref_polynomials(x, 2, 2, coeff_name = :c)
-eqs_inter = parametrize_interactions(eqs, ref_eqs, x, [5,6])
+inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
+eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
 eqs_inter_str = parametrize_stengths(eqs_inter, x, α)
-syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, [5, 6], α)
+syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
 
+#evaluate system at α = 0.5
 
-########################################################################################################
-#FUNCTIONS I SCAVANGED FROM OLD CODE THAT MIGHT BE USEFUL here
-########################################################################################################
-"""
-    is_feasible(r::PathResult)
+#set up a particular solution to this system
+start_solutions = [[1.0 + 0.0im, 1.0 + 0.0im]]
+initial_parameters = vcat(r, [1., 0.])
+end_parameters = vcat(r .+ rhomax*perts[8,:], [0.5, 0.5])
 
-return true if all components of r are positive
-"""
-function is_feasible(r::PathResult)
-    return all(real(r.solution) .> 0) 
+ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
+                                       target_coefficients = end_parameters))
+
+Xs = Vector{ComplexF64}[]
+Ts = []
+Ps = []
+
+for (x, t, p) in iterator(ct, [-1.0], 1.0, 0.0)
+
+push!(Xs, x)
+push!(Ts, t)
+
 end
 
-"""
-    stopatreal(r::PathResult)
 
-    return true if r is real
-"""
-function stopatreal(r::PathResult)
-    #check if solution  is real
-    if is_real(r)
-        return true
-    else
-        return false
-    end
-end
+# #create the initial equilibrium
+# res = solve(syst, start_solutions;
+#             start_parameters = initial_parameters,  
+#             target_parameters = end_parameters,
+#             catch_interrupt = false,
+#             stop_early_cb = stopatnonfeasible)
+# println("Solutions: ", solutions(res))
 
-"""
-    stopatfeasible(r::PathResult)
-
-return true if r is feasible
-"""
-function stopatfeasible(r::PathResult)
-    #check if solution  is real
-    if is_real(r)
-        #check if its feasible
-        if is_feasible(r)
-            return true
-        else
-            return false
-        end
-    else
-        return false
-    end
-end

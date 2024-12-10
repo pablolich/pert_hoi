@@ -15,11 +15,14 @@ options = TrackerOptions(max_step_size = 0.015625),
 
 )
 
+
 Xs = Vector{ComplexF64}[]
+Ts = []
 
 for (x, t) in iterator(ct, [-1.0], 1.0, 0.0)
 
 push!(Xs, x)
+push!(Ts, t)
 
 end
 

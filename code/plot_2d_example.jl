@@ -1,12 +1,8 @@
-#sample parameters n = 2
-#pick one alpha
-#get the real feasibility domain
-#get critical radius with many points (1e4)
-#get critical radius with a fraction of points (1e2)
-#plot the r's coming from the real feasibility domain
-#plot a circle with the radius equal the one obtained for 1e4 (i.e., inf)
-#plot a the points used to find critical radius of 1e2 points
-#if desired, plot also the x corresponding to this cases
+#code to obtain the feasibility domain as acurately as possible, in 2 dimensions, 
+#and compare it to the feasibility radius obtain by looking at the circumference
+
+using HomotopyContinuation
+include("functions.jl")
 
 """
 find middle point between two points
@@ -41,114 +37,114 @@ function get_angles(num_points::Int64)
 end
 
 """
-build glv model
-"""
-function buildglvhoi(pars::Tuple, x::Vector{Variable}, symb_pars::Bool=false)
-    n = length(pars[2])
-    if symb_pars == false
-        #unpack parameters
-        alpha, r, A, B = pars
-    else
-        #unpack parameters keeping r as a variable
-        alpha, _, A, B = pars
-        @var r[1:n]
-    end
-    eqs = r + (1 .- alpha) .* A*x
-    #add HOIs
-    for i in 1:n
-        eqs[i] += (alpha .* ( x'*B[:,:,i]*x ))[1]
-    end
-    return diagm(x) * eqs
-end
-
-"""
-given a polynomial and a mode:
-if mode == "order" then return the indices of monomials order focal_monomial
-if mode == "species" return the indieces of the monomials containing the variable in focal_monomial
-if mode == "both" then return the intersection of the two, so only the coefficients of order focal_monomial[1], 
-in which the species focal_monomial[2] is involved.
-IMPORTANT: if mode is both, then the length of focal_monomial must be 2, in any other case it must be 1
-"""
-function get_ind_coeffs_subs(polynomial::Expression, x::Vector{Variable}, mode::String, focal_monomial::Vector{Int64})
-    inds_order = []
-    inds_species = []
-    #get the exponents of each variable in each monomial and the associated coefficients
-    exponents, coeffs = exponents_coefficients(polynomial, x)
-    #summ the exponents to determine the order of each monomial
-    order_monomials = vec(sum(exponents, dims = 1)) #vectorize too
-    if mode == "order"  
-        #find positions of monomials of order focal_monomial
-        inds_order = findall(x -> x == focal_monomial[1], order_monomials) 
-        return inds_order
-    elseif mode == "species"
-        #focal_monomial should be interpreted as an integer in [0, n], where n is the number of variables
-        exps_focal_species = exponents[focal_monomial[1],:]
-        #find positions where variable focal_monomial appear
-        inds_species = findall(x -> x != 0, exps_focal_species)
-        return inds_species
-    elseif mode == "both"
-        inds_order = findall(x -> x == focal_monomial[1], order_monomials)
-        #focal_monomial should be interpreted as an integer in [0, n], where n is the number of variables
-        exps_focal_species = exponents[focal_monomial[2],:]
-        #find positions where variable focal_monomial appear
-        inds_species = findall(x -> x != 0, exps_focal_species)
-        return intersect(inds_order, inds_species)
-    else
-        throw(ErrorException("Not a valid mode to select coefficients"))
-    end
-end
-
-"""
-given ref_polynomial (a reference polynomial) with symbolic coefficients,  num_polynomial (a polynomial with 
-numeric coefficients), and a vector of coefficient indices: transform the numerical coefficients of num_polynomial 
-into the symbolic coefficients of ref_polynomial
-"""
-function num2symb(ref_polynomial::Expression, num_polynomial::Expression, x::Vector{Variable}, coeff_inds::Vector{Int64})
-    #puts the coefficients of ref_polynomial and num_polynomial into vectors
-    coeffs_ref = coefficients(ref_polynomial, x)
-    coeffs_num = coefficients(num_polynomial, x)
-    #substitute the desired coefficients into the numerical polynomial
-    for i in 1:length(coeff_inds)
-        num_polynomial = subs(num_polynomial, coeffs_num[i] => coeffs_ref[i])
-    end
-    return num_polynomial
-end
-
-"""
-build new tuple of parameters given the old and the perturbation
-"""
-function get_new_pars(old_pars::Tuple, perturbation::Tuple)
-    #get length of the tuple
-    n_par_group = length(old_pars)
-    for i in 1:n_par_group
-        old_pars[i] += perturbation[i]
-    end
-    return old_pars
-end
-
-"""
 given parameters, variables, solve the system using parameter homotopy
 """
-function solve_system(vars, pars, pert_pars)
+function solve_system(x::Vector{Variable}, r::Vector{Variable}, pars::Tuple, pert_pars::Vector{Float64})
     n = length(pars[2]) #use growth rates to get number of species
     syst = System(buildglvhoi(pars, x, true), parameters = r) #build system keeping r as implicit
-    start_solutions = [ones(n)]
-    new_pars = get_new_pars(pars, pert_pars)
-    res = solve(syst, start_solutions=[ones(n)]; 
+    res = solve(syst, [ones(n)]; 
                 start_parameters = pars[2],
-                target_parameters = new_pars)
-    return
+                target_parameters = pert_pars)
+    #check number of solutions found
+    n_sols = nsolutions(res)
+    if n_sols == 0
+        solmat = Matrix{Float64}(undef, 0, n)
+    else
+        solmat = mapreduce(permutedims, vcat, real_solutions(res)) 
+    end
+    return vec(solmat)
+end
+
+"""
+function which root we want to find (evaluated by the bisection method)
+"""
+function get_min_xstar(x::Vector{Float64})
+    if length(x) == 0
+        return -1.0
+    else
+        return minimum(x)
+    end
+end
+
+"""
+Implement bisection method
+"""
+function bisection_method(x::Vector{Variable}, syst_pars::Vector{Variable}, pars::Tuple, direction::Vector{Float64}, x0::Float64, x1::Float64,
+                          tol::Float64=1e-9)
+    global xhalf = bisect(x0, x1)
+    dist = abs(x0 - x1)
+    while dist > tol
+        #form perturbation
+        r0 = pars[2]
+        rnew = pars[2] .+ xhalf*direction
+        #calculate equilibrium at xhalf
+        xstar = solve_system(x, syst_pars, pars, rnew)
+        #evaluate if the minimum is positive or negative
+        value_eq = get_min_xstar(xstar)
+        x0, x1 = getlims(x0, x1, xhalf, value_eq)
+        dist = abs(x0 - x1)
+        return bisection_method(x, syst_pars, pars, direction, x0, x1)
+    end
+    return xhalf
 end
 
 """
 get the actual critical perturbation boundary for which feasibility is lost
 """
-function get_critical_domain(parameters::Tuple, )
-    #pick a direction and increase r until feasibility is lost
-    #if feasibility is not lost, then pick another (random) direction and do the same thing
-    #to see determine when is feasibility lost, use bisection method.
-    #in particular, find the r that makes at least one component of x 0 or complex
-    #once that point is found, rotate the r slightly and perform the search again.
-    #the limits of the search should be a 15% increase on both directions from the previous search
-    return 
+function get_critical_domain(x::Vector{Variable}, r::Vector{Variable}, parameters::Tuple, n_perturbations::Int64, rperts::Matrix{Float64}, rhomax::Float64=2.0)
+    #initialize boundary vectors
+    r_boundary_mat = zeros(Float64, (n_perturbations, 2))
+    #get growth rate perturbations
+    for i in 1:n_perturbations
+        rpert_i = rperts[i,:]
+        rhocrit = bisection_method(x, r, parameters, rpert_i, 0.0, rhomax)
+        #once rhocrit is found, build the vector r in that direction
+        rcrit = rhocrit*rpert_i
+        #store
+        r_boundary_mat[i,:] = rcrit
+    end
+    return r_boundary_mat 
 end
+
+"""
+for each system, get the boundaries for different alphas
+"""
+function many_boundaries(n_perturbations::Int64, alphavec::Vector{Float64}, nsims::Int64, x0::Float64=0.0, x1::Float64=2.0)
+    #traverse t
+    rng = MersenneTwister(1)
+    n = 2
+    tol = 1e-9
+    rperts = get_angles(n_perturbations)
+    @var x[1:n]
+    @var r[1:n]
+    for i in 1:nsims
+        r0, A, B = sampleparameters(n, rng, 2)
+        for alpha in alphavec
+            println("Simulation: ", i, " for alpha: ", alpha)
+            alpha = [alpha]
+            pars = (alpha, r0, A, B)
+            target = get_first_target(pars, 1e-4, rperts, n_perturbations, x, n, tol)
+            r_domain = get_critical_domain(x, r, pars, n_perturbations, rperts)
+            rcrit_dense = findmaxperturbation(x0, x1, get_angles(100), 100, pars, n, x, target, "follow")
+            rcrit_sparse = findmaxperturbation(x0, x1, get_angles(3), 3, pars, n, x, target, "follow")
+            #prepare other vectors to store
+            alphaval_vec = repeat(alpha, n_perturbations)
+            sim_vec = repeat([i], n_perturbations)
+            tostore_domain = hcat(sim_vec, alphaval_vec, r_domain)
+            tostore_rhocrit = [i alpha rcrit_dense rcrit_sparse]
+            open("../data/results_2spp_boundaries.csv", :"a") do io
+                writedlm(io, tostore_domain, ' ')
+            end
+            open("../data/results_2spp_rho_crits.csv", :"a") do io
+                writedlm(io, tostore_rhocrit, ' ')
+            end
+        end
+    end
+end
+
+n_perturbations = 1000
+alphavec = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+nsims = 100
+many_boundaries(n_perturbations, alphavec, nsims)
+
+

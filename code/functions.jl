@@ -15,9 +15,9 @@ using Plots, Colors
 """
 sample row stochastic matrix
 """
-function constrainA(A, r0)
+function constrainA(A, r)
     sumrows = sum(A, dims = 2)
-    Aconst = -r0 .* diagm(1 ./ vec(sumrows)) * A
+    Aconst = -r .* diagm(1 ./ vec(sumrows)) * A
     return Aconst
 end
 
@@ -72,29 +72,31 @@ end
 """
 sample tesnor of HOIs with constraints
 """
-function constrainB(B, r0, n)
+function constrainB(B, r, n)
     Bconst = zeros((n, n, n))
     for i in 1:n
-	Bconst[:,:,i] .= -r0/sum(B[:,:,i]) .* B[:,:,i]
+	    Bconst[:,:,i] .= B[:,:,i]./sum(B[:,:,i]) * (-r[i])
     end
     return Bconst
 end
 
 
 """
-sample parameters with appropriate constraints
+ parameters with appropriate constraints
 """
 function sampleparameters(n, rng, constrain_type)
-
-    r0 = randn(rng)
-    r = repeat([r0], n)
-    A = randn(rng, (n,n))
-    B = randn(rng, (n,n,n))
-    Aconstr = constrainA(A, r0) #equilibrium preserving constraints
+    Aconstr = randn(rng, (n,n))
+    Bconstr = randn(rng, (n,n,n))
+    r = zeros(n)
     if constrain_type == 1
-        Bconstr = getconstantsumB(B, n, r0) #equilibrium and tractability constraints.
+        r0 = randn(rng, n)
+        r = repeat([r0], n)
+        Bconstr = getconstantsumB(Bconstr, n, r0) #equilibrium and tractability constraints.
+        Aconstr = constrainA(Aconstr, r) #equilibrium preserving constraints
     else
-        Bconstr = constrainB(B, r0, n) #only equilibrium preserving constraints.
+        r = randn(rng, (n))
+        Bconstr = constrainB(Bconstr, r, n) #only equilibrium preserving constraints.
+        Aconstr = constrainA(Aconstr, r) #equilibrium preserving constraints
     end
     return r, Aconstr, Bconstr
 end

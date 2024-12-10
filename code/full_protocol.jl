@@ -3,7 +3,7 @@ include("functions.jl")
 #Generates data to plot average feasibility critical radius 
 #for a given n (number of species) and alpha (HOIs strength).
 
-constrain_type = 1 #tractability and equilibrium constrains are on.
+constrain_type = 2 #tractability and equilibrium constrains are on.
 #number of species
 nmax = 5
 #order of interactions
@@ -13,13 +13,13 @@ alphavec = 0.01:0.1:0.99
 #number of points to check is fix for all n
 nperturbations = 1000
 #number of simulations for each parameter set
-nsim = 1000
+nsim = 100
 tol = 1e-9
 npointsbeyond = 10
 rhobeyond = 1.5
 #random seed
 rng = MersenneTwister(1)
-mode = "all" #either "follow" or "all"
+mode = "follow" #either "follow" or "all"
 
 @time begin
     for sim in 1:nsim #perform many replicates
