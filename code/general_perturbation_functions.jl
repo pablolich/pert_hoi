@@ -363,6 +363,7 @@ pars = sample_parameters(2, 3, rng)
 
 perts = points_hypersphere(2, 1.0, 10)
 rhomax = 0.5
+r = pars[1]
 
 @var  x[1:2]
 @var α[1:2]
@@ -384,6 +385,14 @@ end_parameters = vcat(r .+ rhomax*perts[8,:], [0.5, 0.5])
 ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                        target_coefficients = end_parameters))
 
+
+s = [1, 1]
+#track solution s from 1 to 0
+res = track(ct, s, 1, 0) #equivalent to solve
+
+#now i have to define my own track function, which in turn calls the new track! function that 
+#stops when a component of the solution becomes negative.
+
 Xs = Vector{ComplexF64}[]
 Ts = []
 Ps = []
@@ -396,11 +405,11 @@ push!(Ts, t)
 end
 
 
-# #create the initial equilibrium
-# res = solve(syst, start_solutions;
-#             start_parameters = initial_parameters,  
-#             target_parameters = end_parameters,
-#             catch_interrupt = false,
-#             stop_early_cb = stopatnonfeasible)
-# println("Solutions: ", solutions(res))
+#create the initial equilibrium
+res = solve(syst, start_solutions;
+            start_parameters = initial_parameters,  
+            target_parameters = end_parameters,
+            catch_interrupt = false,
+            stop_early_cb = stopatnonfeasible)
+println("Solutions: ", solutions(res))
 
