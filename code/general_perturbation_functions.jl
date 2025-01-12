@@ -190,7 +190,6 @@ return true if r is not feasible
 """
 function stopatnonfeasible(r::PathResult)
     #check if solution  is real
-    println("solution is: ", r.solution)
     if !is_real(r) || !is_feasible(r)
         return true
     else 
@@ -350,6 +349,54 @@ function get_parameters_at_boundary(solution_matrix::Vector{ComplexF64}, paramet
     end
 end
 
+"""
+    equivalent of track! but only for positive solutions
+"""
+function trackpositive!(
+    tracker::Tracker,
+    x::AbstractVector,
+    t₁ = 1.0,
+    t₀ = 0.0;
+    ω::Float64 = NaN,
+    μ::Float64 = NaN,
+    extended_precision::Bool = false,
+    τ::Float64 = Inf,
+    keep_steps::Bool = false,
+    max_initial_step_size::Float64 = Inf,
+    debug::Bool = false,
+)
+    init!(
+        tracker,
+        x,
+        t₁,
+        t₀;
+        ω = ω,
+        μ = μ,
+        extended_precision = extended_precision,
+        τ = τ,
+        keep_steps = keep_steps,
+        max_initial_step_size = max_initial_step_size,
+    )
+
+    while is_tracking(tracker.state.code)
+        step!(tracker, debug)
+        #after a tracking step, check if any of the components are negative.
+        any(real(tracker.state.x) < 0 for tracker.state.x in v)
+        current_x = tracker.state.x
+        #
+    end
+
+    tracker.state.code
+end
+
+"""
+    equivalent of track, but only for positive solutions
+"""
+@inline function trackpositive(tracker::Tracker, x, t₁ = 1.0, t₀ = 0.0; kwargs...)
+    trackpositive!(tracker, x, t₁, t₀; kwargs...)
+    TrackerResult(tracker.homotopy, tracker.state)
+end
+
 
 #test all functions 
 
@@ -389,20 +436,23 @@ ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
 s = [1, 1]
 #track solution s from 1 to 0
 res = track(ct, s, 1, 0) #equivalent to solve
+#res = trackpositive(ct, s, 1, 0) #equivalent to solve
+#need to know how to access the solution of a tracker, to check if any component is positive
+#then set the tracker.state to failure if that is the case.
 
 #now i have to define my own track function, which in turn calls the new track! function that 
 #stops when a component of the solution becomes negative.
 
-Xs = Vector{ComplexF64}[]
-Ts = []
-Ps = []
+# Xs = Vector{ComplexF64}[]
+# Ts = []
+# Ps = []
 
-for (x, t, p) in iterator(ct, [-1.0], 1.0, 0.0)
+# for (x, t, p) in iterator(ct, [-1.0], 1.0, 0.0)
 
-push!(Xs, x)
-push!(Ts, t)
+# push!(Xs, x)
+# push!(Ts, t)
 
-end
+# end
 
 
 #create the initial equilibrium
