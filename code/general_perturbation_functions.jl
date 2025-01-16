@@ -158,6 +158,21 @@ function parametrize_stengths(equations::Vector{Expression}, x::Vector{Variable}
 end
 
 """
+Evaluate a set of parameters given a System of equations.
+"""
+function evaluate_pars(
+    syst::System, 
+    variables::Vector{Variable},
+    values::Vector{Float64}
+)
+    #perform evaluation of desired parameters
+    evaluated_equations = [subs(eq, variables => values) for eq in syst.expressions]
+    #construct system retaining parameters that have not been evaluated
+    pars_eval_syst = setdiff(parameters(syst), variables)
+    return System(evaluated_equations, parameters = pars_eval_syst)
+end
+
+"""
 form a System of polynomials given a set of equations, and parameters (both interactions and strengths)
 """
 function build_parametrized_glvhoi(equations::Vector{Expression}, 
@@ -388,18 +403,18 @@ function trackpositive!(
     xbefore = x
     while is_tracking(tracker.state.code)
         #record quantities before and after step
-        tbefore = tracker.t
-        xbefore = tracker.state.x
+        tbefore = tracker.state.t
+        xbefore = copy(tracker.state.x)
         step!(tracker, debug)
-        println("t value: ", tracker.state.t)
+        ("t value: ", tracker.state.t)
         println("state: ", tracker.state.x)
         #after a tracking step, check if any of the components are negative.
         if any(real(tracker.state.x) .< 0)
             println("Found one negative component")
-            return tbefore, xbefore
+            return real(tbefore), real(xbefore)
         end
     end
-    return tbefore, xbefore
+    return real(tbefore), real(xbefore)
 end
 
 """
@@ -413,43 +428,44 @@ end
 """
 track recursively until the first zero is reached and get the critical parameters at that point
 """
-function findparscrit(syst::System, x::AbstractVector, tol::Float64, 
-    initial_parameters::Vector{Float64}, target_parameters::Vector{Float64})
+function findparscrit(
+    syst::System,
+    initialsol::AbstractVector, 
+    initial_parameters::Vector{Float64}, 
+    target_parameters::Vector{Float64},
+    tol::Float64)
     #create a tracker
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
     #track along path until (1) end of routine, (2) a negative or (3) complex solution is found                               
-    tbefore, xbefore = trackpositive!(ct, x, 1.0, 0.0) #log the t and x before the end of the routine
+    tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0) #log the t and x before the end of the routine
     res = TrackerResult(ct.homotopy, ct.state) #form a TrackerResult
-    neg_component = minimum(x) #get the most negative x
-    while abs(neg_component) > tol
-        #check if any solution was found
-        nsols = nsolutions(res)
-        if nsols == 0 #no solutions were found (tracking failed)
-            #get the value where algorithm stopped
-            tfinal = last_path_point(failed(res)[1])[2]
-            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
-        else #solutions were found, but might be negative
-            #get the value of t
-            tfinal = ct.state.t
-            if tfinal == 0
-                #if the tracking ended
-                return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
-            else tfinal != 0
-                #select the most negative equilibria
-                initsol = ct.state.x
-                initpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
-                endpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
-                return findtcrit(syst, initsol, initpars, endpars)
+    #get some tracking results
+    retcode = res.return_code
+    tfinal = real(res.t)
+    neg_component = minimum(real(res.solution)) #get the most negative x
+    if retcode == :success && neg_component > 0 #tracking ended at a postive solutions
+        return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+    else #tracking stopped early or failed
+        if retcode == :tracking #negative solutions were found
+            #re-run this function iteratively until the most negative component falls below tol
+            while abs(neg_component) > tol
+                initsol = xbeforefor
+                initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
+                endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+                return findtcrit(syst, initsol, initpars, endpars, tol)
             end
+            #end tracking since we are at boundary between positive-negative solutions 
+            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+        else #complex solutions were found
+            println("Return code is: ", retcode) #check that indeed we are in the complex case.
+            #end tracking since we are at boundary between positve-complex solutions
+            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         end
     end
-    #return tha end parametes, which would now be the critical parameters
-    get_parameters_at_t(ct.state.t, initial_parameters, target_parameters)
 end
 
 #CHECK THIS FUNCTION TOMORROW
-
 
 #test all functions 
 
@@ -477,9 +493,11 @@ syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates
 
 #evaluate system at α = 0.5
 
+
+
 #set up a particular solution to this system
 start_solutions = [[1.0 + 0.0im, 1.0 + 0.0im]]
-initial_parameters = vcat(r, [1., 0.])
+initial_parameters = vcat(r, [0.5, 0.5])
 end_parameters = vcat(r .+ rhomax*perts[3,:], [0.5, 0.5])
 
 ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
@@ -515,4 +533,3 @@ res = solve(syst, start_solutions;
             catch_interrupt = false,
             stop_early_cb = stopatnonfeasible)
 println("Solutions: ", solutions(res))
-
