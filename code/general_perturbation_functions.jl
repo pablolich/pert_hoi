@@ -317,6 +317,13 @@ function get_ts_and_xs(tracker_homotopy::Tracker, start_solution::AbstractVector
 end
 
 """
+given start and end parameters, and a value of t, return the corresponding convex sum parameters
+"""
+function get_parameters_at_t(t::Float64, initial_parameters::Vector{Float64}, target_parameters::Vector{Float64})
+    t * initial_parameters + (1 - t) * target_parameters
+end
+
+"""
 given start parameters, target parameters, and set of t and x values, construct the vector of parameters corresponding 
 to the systems we traverse when doing the HomotopyContinuation
 """
@@ -326,7 +333,7 @@ function get_parameters_along_path(tvector::Vector{Float64}, initial_parameters:
     nrow = length(start_parameters)
     parameter_matrix = zeros(nrow, ncol)
     for j in 1:ncol
-        parameter_matrix[:,j] = tvector[i] * initial_parameters + (1 - tvector[i]) * target_parameters     
+        parameter_matrix[:,j] = get_parameters_at_t(tvector[i], initial_parameters, target_parameters)
     end
     return parameter_matrix
 end
@@ -377,25 +384,71 @@ function trackpositive!(
         keep_steps = keep_steps,
         max_initial_step_size = max_initial_step_size,
     )
-
+    tbefore = t₁
+    xbefore = x
     while is_tracking(tracker.state.code)
+        #record quantities before and after step
+        tbefore = tracker.t
+        xbefore = tracker.state.x
         step!(tracker, debug)
+        println("t value: ", tracker.state.t)
+        println("state: ", tracker.state.x)
         #after a tracking step, check if any of the components are negative.
-        any(real(tracker.state.x) < 0 for tracker.state.x in v)
-        current_x = tracker.state.x
-        #
+        if any(real(tracker.state.x) .< 0)
+            println("Found one negative component")
+            return tbefore, xbefore
+        end
     end
-
-    tracker.state.code
+    return tbefore, xbefore
 end
 
 """
     equivalent of track, but only for positive solutions
 """
 @inline function trackpositive(tracker::Tracker, x, t₁ = 1.0, t₀ = 0.0; kwargs...)
-    trackpositive!(tracker, x, t₁, t₀; kwargs...)
+    tbefore, xbefore = trackpositive!(tracker, x, t₁, t₀; kwargs...)
     TrackerResult(tracker.homotopy, tracker.state)
 end
+
+"""
+track recursively until the first zero is reached and get the critical parameters at that point
+"""
+function findparscrit(syst::System, x::AbstractVector, tol::Float64, 
+    initial_parameters::Vector{Float64}, target_parameters::Vector{Float64})
+    #create a tracker
+    ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
+                                         target_coefficients = target_parameters))
+    #track along path until (1) end of routine, (2) a negative or (3) complex solution is found                               
+    tbefore, xbefore = trackpositive!(ct, x, 1.0, 0.0) #log the t and x before the end of the routine
+    res = TrackerResult(ct.homotopy, ct.state) #form a TrackerResult
+    neg_component = minimum(x) #get the most negative x
+    while abs(neg_component) > tol
+        #check if any solution was found
+        nsols = nsolutions(res)
+        if nsols == 0 #no solutions were found (tracking failed)
+            #get the value where algorithm stopped
+            tfinal = last_path_point(failed(res)[1])[2]
+            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+        else #solutions were found, but might be negative
+            #get the value of t
+            tfinal = ct.state.t
+            if tfinal == 0
+                #if the tracking ended
+                return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+            else tfinal != 0
+                #select the most negative equilibria
+                initsol = ct.state.x
+                initpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+                endpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
+                return findtcrit(syst, initsol, initpars, endpars)
+            end
+        end
+    end
+    #return tha end parametes, which would now be the critical parameters
+    get_parameters_at_t(ct.state.t, initial_parameters, target_parameters)
+end
+
+#CHECK THIS FUNCTION TOMORROW
 
 
 #test all functions 
@@ -427,7 +480,7 @@ syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates
 #set up a particular solution to this system
 start_solutions = [[1.0 + 0.0im, 1.0 + 0.0im]]
 initial_parameters = vcat(r, [1., 0.])
-end_parameters = vcat(r .+ rhomax*perts[8,:], [0.5, 0.5])
+end_parameters = vcat(r .+ rhomax*perts[3,:], [0.5, 0.5])
 
 ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                        target_coefficients = end_parameters))
@@ -436,7 +489,7 @@ ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
 s = [1, 1]
 #track solution s from 1 to 0
 res = track(ct, s, 1, 0) #equivalent to solve
-#res = trackpositive(ct, s, 1, 0) #equivalent to solve
+#respos = trackpositive(ct, s, 1, 0) #equivalent to solve
 #need to know how to access the solution of a tracker, to check if any component is positive
 #then set the tracker.state to failure if that is the case.
 
