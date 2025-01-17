@@ -426,7 +426,11 @@ end
 end
 
 """
-track recursively until the first zero is reached and get the critical parameters at that point
+Given a model syst with an equilibrium at initialsol (feasible), for parameters initial_parameters,
+compute parameters for which feasibility is lost when traversing the line 
+t * initial_parameters + (1-t) * target_parameters from t = 1 to t = 0. Feasibility is lost either when
+the solution becomes complex (at least one entry has non-zero imaginary part) or when solution becomes
+negative (at least one entry reaches 0 up to tolerance tol)
 """
 function findparscrit(
     syst::System,
@@ -434,24 +438,33 @@ function findparscrit(
     initial_parameters::Vector{Float64}, 
     target_parameters::Vector{Float64},
     tol::Float64)
-    #create a tracker
+    #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
-    #track along path until (1) end of routine, (2) a negative or (3) complex solution is found                               
-    tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0) #log the t and x before the end of the routine
+    #track along path until 
+        #(1) target_parameters are reached,
+        #(2) a negative or 
+        #(3) complex solution is found                               
+    tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0) #log the t and x a step before the end of the routine
     res = TrackerResult(ct.homotopy, ct.state) #form a TrackerResult
     #get some tracking results
-    retcode = res.return_code
-    tfinal = real(res.t)
-    neg_component = minimum(real(res.solution)) #get the most negative x
-    if retcode == :success && neg_component > 0 #tracking ended at a postive solutions
-        return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+    retcode = res.return_code #gives whether tracking succeded, failed, or sotpped
+    tfinal = real(res.t) #the value of t for after tracking routine
+    neg_component = minimum(real(res.solution)) #get the most negative x of solution after tracking routine
+    #depending on the status after tracking, decide how to continue:
+    if retcode == :success && neg_component > 0 #tracking ended succesfully at a postive solution
+        #return parameters for t = 0
+        println("Tracking succesful, t = ", tfinal)
+        return target_parameters
     else #tracking stopped early or failed
-        if retcode == :tracking #negative solutions were found
-            #re-run this function iteratively until the most negative component falls below tol
+        if retcode == :tracking #it stopped early because negative solutions were found
+            #re-run this function to get closer to the positive-negative boundary
             while abs(neg_component) > tol
+                #initial solution is now last positive solution of the path
                 initsol = xbeforefor
+                #initial parameters are the ones corresponding to the new initsol
                 initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
+                #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
                 return findtcrit(syst, initsol, initpars, endpars, tol)
             end
