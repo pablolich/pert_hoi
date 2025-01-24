@@ -407,10 +407,9 @@ function trackpositive!(
         xbefore = copy(tracker.state.x)
         step!(tracker, debug)
         ("t value: ", tracker.state.t)
-        println("state: ", tracker.state.x)
         #after a tracking step, check if any of the components are negative.
         if any(real(tracker.state.x) .< 0)
-            println("Found one negative component")
+            println("values previous to negative: ", xbefore)
             return real(tbefore), real(xbefore)
         end
     end
@@ -437,7 +436,7 @@ function findparscrit(
     initialsol::AbstractVector, 
     initial_parameters::Vector{Float64}, 
     target_parameters::Vector{Float64},
-    tol::Float64)
+    tol::Float64=1e-9)
     #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
@@ -458,17 +457,22 @@ function findparscrit(
         return target_parameters
     else #tracking stopped early or failed
         if retcode == :tracking #it stopped early because negative solutions were found
+            println("Solution became negative: ", res.solution)
             #re-run this function to get closer to the positive-negative boundary
             while abs(neg_component) > tol
                 #initial solution is now last positive solution of the path
-                initsol = xbeforefor
+                initsol = xbefore
                 #initial parameters are the ones corresponding to the new initsol
                 initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
                 #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
-                return findtcrit(syst, initsol, initpars, endpars, tol)
+                println("New recursion")
+                println("initialsol: ", initsol)
+                println("initial parameters: ", initpars)
+                println("endparrameters: ", endpars)
+                return findparscrit(syst, initsol, initpars, endpars)
             end
-            #end tracking since we are at boundary between positive-negative solutions 
+            #when tolerance is reached, we are at boundary between positive-negative solutions 
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         else #complex solutions were found
             println("Return code is: ", retcode) #check that indeed we are in the complex case.
@@ -478,71 +482,64 @@ function findparscrit(
     end
 end
 
-#CHECK THIS FUNCTION TOMORROW
+# #test all functions 
 
-#test all functions 
+# n = 2
+# d = 3
+# rng = MersenneTwister(1)
 
-n = 2
-d = 3
-rng = MersenneTwister(1)
+# pars = sample_parameters(2, 3, rng)
 
-pars = sample_parameters(2, 3, rng)
+# #get perturbations on the unit sphere
 
-#get perturbations on the unit sphere
+# perts = points_hypersphere(2, 1.0, 10)
+# rhomax = 0.5
+# r = pars[1]
 
-perts = points_hypersphere(2, 1.0, 10)
-rhomax = 0.5
-r = pars[1]
+# @var  x[1:2]
+# @var α[1:2]
 
-@var  x[1:2]
-@var α[1:2]
+# eqs = build_glvhoi(pars, x)
+# ref_eqs, coeffs_mat = get_ref_polynomials(x, d, 2, coeff_name = :c)
+# inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
+# eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
+# eqs_inter_str = parametrize_stengths(eqs_inter, x, α)
+# syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
 
-eqs = build_glvhoi(pars, x)
-ref_eqs, coeffs_mat = get_ref_polynomials(x, 2, 2, coeff_name = :c)
-inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
-eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
-eqs_inter_str = parametrize_stengths(eqs_inter, x, α)
-syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
-
-#evaluate system at α = 0.5
+# #evaluate system at α = 0.5
 
 
 
-#set up a particular solution to this system
-start_solutions = [[1.0 + 0.0im, 1.0 + 0.0im]]
-initial_parameters = vcat(r, [0.5, 0.5])
-end_parameters = vcat(r .+ rhomax*perts[3,:], [0.5, 0.5])
+# #set up a particular solution to this system
+# start_solutions = [[1.0 + 0.0im, 1.0 + 0.0im]]
+# initial_parameters = vcat(r, [0.5, 0.5])
+# end_parameters = vcat(r .+ rhomax*perts[3,:], [0.5, 0.5])
 
-ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
-                                       target_coefficients = end_parameters))
-
-
-s = [1, 1]
-#track solution s from 1 to 0
-res = track(ct, s, 1, 0) #equivalent to solve
-#respos = trackpositive(ct, s, 1, 0) #equivalent to solve
-#need to know how to access the solution of a tracker, to check if any component is positive
-#then set the tracker.state to failure if that is the case.
-
-#now i have to define my own track function, which in turn calls the new track! function that 
-#stops when a component of the solution becomes negative.
-
-# Xs = Vector{ComplexF64}[]
-# Ts = []
-# Ps = []
-
-# for (x, t, p) in iterator(ct, [-1.0], 1.0, 0.0)
-
-# push!(Xs, x)
-# push!(Ts, t)
-
-# end
+# ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
+#                                        target_coefficients = end_parameters))
 
 
-#create the initial equilibrium
-res = solve(syst, start_solutions;
-            start_parameters = initial_parameters,  
-            target_parameters = end_parameters,
-            catch_interrupt = false,
-            stop_early_cb = stopatnonfeasible)
-println("Solutions: ", solutions(res))
+# s = [1, 1]
+# #track solution s from 1 to 0
+# res = track(ct, s, 1, 0) #equivalent to solve
+# #respos = trackpositive(ct, s, 1, 0) #equivalent to solve
+# #need to know how to access the solution of a tracker, to check if any component is positive
+# #then set the tracker.state to failure if that is the case.
+
+# #now i have to define my own track function, which in turn calls the new track! function that 
+# #stops when a component of the solution becomes negative.
+
+# # Xs = Vector{ComplexF64}[]
+# # Ts = []
+# # Ps = []
+
+# # for (x, t, p) in iterator(ct, [-1.0], 1.0, 0.0)
+
+# # push!(Xs, x)
+# # push!(Ts, t)
+
+# # end
+
+
+# #create the initial equilibrium
+# println("Solutions: ", solutions(res))
