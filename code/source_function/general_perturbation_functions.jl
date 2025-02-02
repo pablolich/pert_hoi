@@ -85,7 +85,8 @@ function num2symb(ref_polynomial::Expression, num_polynomial::Expression, x::Vec
 end
 
 """
-given a polynomial expression and a vector its coefficients, substitute the 
+given a polynomial expression, a vector of its symbolic coefficients, indices to evaluate, and 
+values to which evaluate, perform evaluation.
 """
 function symb2num(equations::Vector{Expression}, 
     coeffs::Vector{Variable},
@@ -106,7 +107,7 @@ function get_ref_polynomials(
     d::Integer,
     n::Integer;
     homogeneous::Bool = false,
-    coeff_name::Symbol = gensym(:c),
+    coeff_name::Symbol = :c
 )
     eqs = Vector{Expression}()
     M = monomials(vars, d; affine = !homogeneous)
@@ -136,7 +137,7 @@ end
 given a set of polynomials, multiply all the monomials of a given order by the corresponding strength of that order given by
 alpha_vec
 """
-function parametrize_stengths(equations::Vector{Expression}, x::Vector{Variable}, alpha_vec::Vector{Variable})
+function parametrize_strengths(equations::Vector{Expression}, x::Vector{Variable}, alpha_vec::Vector{Variable})
     n_equations = length(equations)
     parametrized_equations = Vector{Expression}()
     for i in 1:n_equations
@@ -301,7 +302,7 @@ function apply_constrain(tensor::Array{Float64}, slices_sum::Vector{Float64})
 end
 
 """
-sample parameters with equilibrium preserving constraints
+sample parameters with equilibrium preserving constraints, for n species, polynomial order, and seed given by rng
 """
 function sample_parameters(n::Int64, order::Int64, rng::MersenneTwister)
     #sample growth rates
@@ -425,6 +426,26 @@ end
 end
 
 """
+function to verify that no feasibility is found below the critical parameters
+"""
+function verify_criticality(
+    syst::System,
+    initialsol::AbstractVector,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64},
+    tol::Float64
+    )
+    #solve polynomial equations from inital parameters to critical parameters
+    res = path_results(
+        solve(
+            syst, start_solutions;
+            start_parameters = initial_parameters,  
+            target_parameters = target_parameters
+        )
+    )[1]
+end
+
+"""
 Given a model syst with an equilibrium at initialsol (feasible), for parameters initial_parameters,
 compute parameters for which feasibility is lost when traversing the line 
 t * initial_parameters + (1-t) * target_parameters from t = 1 to t = 0. Feasibility is lost either when
@@ -436,28 +457,34 @@ function findparscrit(
     initialsol::AbstractVector, 
     initial_parameters::Vector{Float64}, 
     target_parameters::Vector{Float64},
-    tol::Float64=1e-9)
+    tol::Float64=1e-9, 
+    rec_level::Int64=1)
+    """
+    I SHOULD ADD HERE A TEST THAT CHECKS THE FEASIBILITY OF EQUILIBRIUM AT THE MAXIMUM PERTURBATION
+    MAGNITUDE. IF ITS FEASIBLE, RETURN THOSE PARAMETERS. OTHERWISE PROCEED WITH HOMOTOPY.
+    """
+    println("Recursion level: ", rec_level)
     #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
     #track along path until 
         #(1) target_parameters are reached,
-        #(2) a negative or 
+        #(2) negative solution is found
         #(3) complex solution is found                               
     tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0) #log the t and x a step before the end of the routine
     res = TrackerResult(ct.homotopy, ct.state) #form a TrackerResult
-    #get some tracking results
+    #store some tracking output
     retcode = res.return_code #gives whether tracking succeded, failed, or sotpped
     tfinal = real(res.t) #the value of t for after tracking routine
     neg_component = minimum(real(res.solution)) #get the most negative x of solution after tracking routine
     #depending on the status after tracking, decide how to continue:
     if retcode == :success && neg_component > 0 #tracking ended succesfully at a postive solution
         #return parameters for t = 0
-        println("Tracking succesful, t = ", tfinal)
+        #println("Tracking succesful, t = ", tfinal)
         return target_parameters
     else #tracking stopped early or failed
         if retcode == :tracking #it stopped early because negative solutions were found
-            println("Solution became negative: ", res.solution)
+            #println("Solution became negative: ", res.solution)
             #re-run this function to get closer to the positive-negative boundary
             while abs(neg_component) > tol
                 #initial solution is now last positive solution of the path
@@ -466,16 +493,14 @@ function findparscrit(
                 initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
                 #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
-                println("New recursion")
-                println("initialsol: ", initsol)
-                println("initial parameters: ", initpars)
-                println("endparrameters: ", endpars)
-                return findparscrit(syst, initsol, initpars, endpars)
+                rec_level += 1
+                return findparscrit(syst, initsol, initpars, endpars, tol, rec_level)
             end
             #when tolerance is reached, we are at boundary between positive-negative solutions 
+            println("Boundary is real: ", retcode)
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         else #complex solutions were found
-            println("Return code is: ", retcode) #check that indeed we are in the complex case.
+            println("Boundary is complex: ", retcode) #check that indeed we are in the complex case.
             #end tracking since we are at boundary between positve-complex solutions
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         end
@@ -503,7 +528,7 @@ end
 # ref_eqs, coeffs_mat = get_ref_polynomials(x, d, 2, coeff_name = :c)
 # inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
 # eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
-# eqs_inter_str = parametrize_stengths(eqs_inter, x, α)
+# eqs_inter_str = parametrize_strengths(eqs_inter, x, α)
 # syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
 
 # #evaluate system at α = 0.5
