@@ -426,26 +426,6 @@ end
 end
 
 """
-function to verify that no feasibility is found below the critical parameters
-"""
-function verify_criticality(
-    syst::System,
-    initialsol::AbstractVector,
-    initial_parameters::Vector{Float64},
-    target_parameters::Vector{Float64},
-    tol::Float64
-    )
-    #solve polynomial equations from inital parameters to critical parameters
-    res = path_results(
-        solve(
-            syst, start_solutions;
-            start_parameters = initial_parameters,  
-            target_parameters = target_parameters
-        )
-    )[1]
-end
-
-"""
 Given a model syst with an equilibrium at initialsol (feasible), for parameters initial_parameters,
 compute parameters for which feasibility is lost when traversing the line 
 t * initial_parameters + (1-t) * target_parameters from t = 1 to t = 0. Feasibility is lost either when
@@ -459,10 +439,6 @@ function findparscrit(
     target_parameters::Vector{Float64},
     tol::Float64=1e-9, 
     rec_level::Int64=1)
-    """
-    I SHOULD ADD HERE A TEST THAT CHECKS THE FEASIBILITY OF EQUILIBRIUM AT THE MAXIMUM PERTURBATION
-    MAGNITUDE. IF ITS FEASIBLE, RETURN THOSE PARAMETERS. OTHERWISE PROCEED WITH HOMOTOPY.
-    """
     println("Recursion level: ", rec_level)
     #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
@@ -494,10 +470,19 @@ function findparscrit(
                 #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
                 rec_level += 1
+                ##DEBUGGING##
+                if rec_level > 100
+                    println("maximum recursion level reached, returning bad parameters")
+                    return -1
+                end
+                ####################
+                #decrease step size!
+                ####################
                 return findparscrit(syst, initsol, initpars, endpars, tol, rec_level)
             end
             #when tolerance is reached, we are at boundary between positive-negative solutions 
             println("Boundary is real: ", retcode)
+            #decrease step size.
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         else #complex solutions were found
             println("Boundary is complex: ", retcode) #check that indeed we are in the complex case.

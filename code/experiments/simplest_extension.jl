@@ -30,7 +30,7 @@ end
 #set fix parameters for simulations
 nsim = 1000 #number of simulations
 d = 2; @var α[1:d] #degree of polynomials to solve; corresponding strengths
-n = 4; @var x[1:n] #number of equations; corresponding variables
+n = 2; @var x[1:n] #number of equations; corresponding variables
 pert_size = 10.0 #maximum perturbation
 d_pert = 0 #order of parameters to perturb
 n_perts = 1000 #number of perturbations
@@ -55,12 +55,15 @@ open("../../data/results_simplest_extension_n_2.csv", "a") do io
         syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
 
         for pert_i in 1:n_perts 
-            end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i]
+            end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i,:]
 
             for alpha_i in alpha_vec #loop through each relative strength value
                 syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
                 println("Simulation: ", seed_i, " parameter set: ", pert_i, " relative strength: ", alpha_i)
                 pars_crit = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
+                if pars_crit == -1
+                    return pars, pert_size, pert_dirs[pert_i,:], alpha_i
+                end
                 δₚ = norm(pars_crit .- initial_pars)
 
                 iteration_result = [seed_i n alpha_i pert_i δₚ]
