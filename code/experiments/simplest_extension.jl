@@ -30,7 +30,7 @@ end
 #set fix parameters for simulations
 nsim = 1000 #number of simulations
 d = 2; @var α[1:d] #degree of polynomials to solve; corresponding strengths
-n = 2; @var x[1:n] #number of equations; corresponding variables
+n = 5; @var x[1:n] #number of equations; corresponding variables
 pert_size = 10.0 #maximum perturbation
 d_pert = 0 #order of parameters to perturb
 n_perts = 1000 #number of perturbations
@@ -41,7 +41,7 @@ init_sol = repeat([1], n) #set initial solution to 1
 #build skeleton polynomial system for n, d
 ref_eqs, coeffs_mat = get_ref_polynomials(x, d, n)
 
-open("../../data/results_simplest_extension_n_2.csv", "a") do io
+open("../../data/results_simplest_extension_n_5.csv", "a") do io
     #run all simulations
     for seed_i in 1:nsim
         rng = MersenneTwister(seed_i)

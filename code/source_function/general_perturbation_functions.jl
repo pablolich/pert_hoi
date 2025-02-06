@@ -440,6 +440,9 @@ function findparscrit(
     tol::Float64=1e-9, 
     rec_level::Int64=1)
     println("Recursion level: ", rec_level)
+    #compute the euclidean distance between parameters to determine maximum step size
+    par_dist = norm(initial_parameters - target_parameters)
+    max_step_size = par_dist/10
     #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
@@ -447,7 +450,7 @@ function findparscrit(
         #(1) target_parameters are reached,
         #(2) negative solution is found
         #(3) complex solution is found                               
-    tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0) #log the t and x a step before the end of the routine
+    tbefore, xbefore = trackpositive!(ct, initialsol, 1.0, 0.0, max_initial_step_size=max_step_size) #log the t and x a step before the end of the routine
     res = TrackerResult(ct.homotopy, ct.state) #form a TrackerResult
     #store some tracking output
     retcode = res.return_code #gives whether tracking succeded, failed, or sotpped
