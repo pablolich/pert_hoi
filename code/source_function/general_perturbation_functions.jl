@@ -407,10 +407,8 @@ function trackpositive!(
         tbefore = tracker.state.t
         xbefore = copy(tracker.state.x)
         step!(tracker, debug)
-        ("t value: ", tracker.state.t)
         #after a tracking step, check if any of the components are negative.
         if any(real(tracker.state.x) .< 0)
-            println("values previous to negative: ", xbefore)
             return real(tbefore), real(xbefore)
         end
     end
@@ -439,8 +437,7 @@ function findparscrit(
     target_parameters::Vector{Float64},
     tol::Float64=1e-9, 
     rec_level::Int64=1)
-    println("Recursion level: ", rec_level)
-    #compute the euclidean distance between parameters to determine maximum step size
+    #compute the euclidean distance between parameters to determine maximum step size of homotopy
     par_dist = norm(initial_parameters - target_parameters)
     max_step_size = par_dist/10
     #create a tracker to traverse parameter space from initial to target parameters
@@ -473,22 +470,15 @@ function findparscrit(
                 #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
                 rec_level += 1
-                ##DEBUGGING##
                 if rec_level > 100
-                    println("maximum recursion level reached, returning bad parameters")
-                    return -1
+                    #the search hasn't converged
+                    return target_parameters
                 end
-                ####################
-                #decrease step size!
-                ####################
                 return findparscrit(syst, initsol, initpars, endpars, tol, rec_level)
             end
             #when tolerance is reached, we are at boundary between positive-negative solutions 
-            println("Boundary is real: ", retcode)
-            #decrease step size.
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         else #complex solutions were found
-            println("Boundary is complex: ", retcode) #check that indeed we are in the complex case.
             #end tracking since we are at boundary between positve-complex solutions
             return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
         end
