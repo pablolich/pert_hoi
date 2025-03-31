@@ -1,14 +1,16 @@
 #this script deals with the question: 
 #how does the histogram of distances change when
-#d = 2, we perturb growth rates (d_pert = 0), set n = 2, the maximum perturbation magnitude is 10
-#and vary alpha, perturbation direction, and look at different parameter sets, indexed by their seed.
+#d = 2, we perturb growth rates (d_pert = 0), vary from 2 to 7, 
+#the maximum perturbation magnitude is 10
+#vary alpha, perturbation direction, and look at different parameter sets, indexed by their seed.
 
 using DelimitedFiles
 
 include("../source_function/general_perturbation_functions.jl")
 
 """
-wrapper for readibility; runs in series all the functions necessary to prepare the system for search
+wrapper for readibility; runs in series all the functions necessary to prepare the system for 
+feasibility boundary computation
 """
 function get_parametrized_system(
     num_eqs::Vector{Expression}, 
@@ -29,7 +31,7 @@ end
 
 """
 returns a list of random coefficients (first column) and their corresponding degree (second column) of a 
-system syst given variables vars. 
+system syst given variables vars for subsequent storing. 
 """
 function coefficients_degree_mat(
     syst::System,
@@ -66,8 +68,9 @@ function coefficients_degree_mat(
 end
 
 #set fix parameters for simulations
-nsim = 1000  # Number of simulations
-d = 2; @var α[1:d]  # Degree of polynomials to solve; corresponding strengths
+
+nsim = 1000  # Number of systems to look at
+d = 2; @var α[1:d]  # Degree of polynomials to solve
 pert_size = 10.0  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
 n_perts = 1000  # Number of perturbations
@@ -77,9 +80,9 @@ alpha_vec = [0.1, 0.9]  # Values of relative interaction strength
 for n in 3:7
     @var x[1:n]  # Number of equations; corresponding variables
     init_sol = repeat([1], n)  # Set initial solution to 1
-    # Build skeleton polynomial system for n, d
+    # Build skeleton polynomial system for curren n (and d)
     ref_eqs, coeffs_mat = get_ref_polynomials(x, d, n)
-    pert_dirs = points_hypersphere(n, 1.0, n_perts, false)  # Perturbation directions
+    pert_dirs = points_hypersphere(n, 1.0, n_perts, false)  # Perturbation directions (try to sample regularly)
     open("../../data/results_simplest_extension_n_$(n).csv", "a") do io
         # Open another file for saving all parameters for each n, seed_i
         open("../../data/parameters_n_$(n).csv", "a") do param_io
