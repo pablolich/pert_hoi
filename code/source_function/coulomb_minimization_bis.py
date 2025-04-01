@@ -128,7 +128,7 @@ def save_solution_if_best(optimized_points, cost, n, dim):
         print("No improvement, solution not saved.")
         
 # Loop for n from 2 to 7, with 250 points each time
-n = 250
+n = 25
 for dim in range(2, 8):
     points = generate_points_on_sphere(n, dim)
 
