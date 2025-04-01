@@ -179,9 +179,9 @@ def nearest_neighbor_distance(positions):
     return distances
 
 def main():
-    n = 500  # Number of points
-    kmax = 5   # Number of dimensions
-    kvec = np.arange(2, kmax + 1)
+    n = 100  # Number of points
+    kmax = 4   # Number of dimensions
+    kvec = np.arange(4, kmax + 1)
     num_runs = 10
 
     for k in kvec:
