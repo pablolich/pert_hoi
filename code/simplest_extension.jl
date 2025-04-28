@@ -150,22 +150,20 @@ for n in 3:7
                     for alpha_i in alpha_vec  # Loop through each relative strength value
                         syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
                         println("Simulation: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
-                        pars_crit = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
+                        pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
                         if pars_crit == -1
                             return pars, pert_size, pert_dirs[pert_i,:], alpha_i
                         end
                         δₚ = norm(pars_crit .- initial_pars)
                         
-                        iteration_result = [seed_i n alpha_i pert_i δₚ]
                         writedlm(io, iteration_result, ' ')  # Store simulation results
 
                         #compute equilibrium given critical parameters
-                        #xcrit = findequilibrium(syst_alpha, pars_crit, init_sol)
-                        #xcrit_dist = norm(xcrit .- ones(n))  # Distance to (1, ..., 1)
+                        xcrit_dist = norm(xstar_crit .- ones(n))  # Distance to (1, ..., 1)
 
                         # Linear approximations
                         xcrit_lin = get_x_star_linear(syst_pars, pars_crit, alpha_i, init_sol)
-                        rcrit_lin = get_r_star_linear(syst_pars, init_sol, xcrit, alpha_i)
+                        rcrit_lin = get_r_star_linear(syst_pars, init_sol, xstar_crit, alpha_i)
 
                         # Distances between critical and linearized equilibrium and parameters
                         δₓ_lin = norm(xcrit .- xcrit_lin)
