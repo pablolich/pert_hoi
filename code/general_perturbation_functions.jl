@@ -627,39 +627,72 @@ Contents:
     return minimum(abs.(real(x))) < tol
 end
 
-function decide_boundary_type(result::TrackerResult, tracker::Tracker, tol::Float64)
+"""
+    solve_at_boundary_parameters(syst::System, t_star::Float64,
+                                 initial_parameters::Vector{Float64},
+                                 target_parameters::Vector{Float64})
+
+Given a homotopy defined by `syst` and the parameters it interpolates between,
+solve the system at parameters corresponding to `t_star`.
+
+Returns: `Result` object from `solve()` with all isolated solutions.
+"""
+function solve_at_boundary_parameters(
+    syst::System,
+    t_star::Float64,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64};
+    kwargs...
+)
+    # Interpolate parameters at t_star
+    p_star = t_star .* initial_parameters .+ (1 - t_star) .* target_parameters
+
+    # Fix the parameters in the system
+    S_fixed = fix_parameters(syst, p_star)
+
+    # Solve the system with fixed parameters
+    result = solve(S_fixed; kwargs...)
+
+    return result
+end
+
+function decide_boundary_type(
+    syst::System,
+    tracker::Tracker,
+    result::TrackerResult,
+    tol::Float64,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64}
+)
     return_code = result.return_code
     x = result.solution
+
     if return_code == :success
-        #tracking was successful and solution is positive
-        #println("Solution is positive throughout: ", x)
+        # Tracking was successful and solution is positive
         return :boundary
+
     elseif return_code == :tracking
-        #tracking was interrupted manually by trackpositive
+        # Tracking was interrupted manually by trackpositive!
         if any(abs.(real.(x)) .< tol)
             println("Solution at negative boundary: ", x)
             return :negative
         else
-            println("Solution became negative but above tolerance", x)
+            println("Solution became negative but above tolerance: ", x)
             return :nonconverged
         end
-    elseif return_code == :terminated_step_size_too_small
-        #solution was not manually interrupted, but tracking stopped because of small step size
-        #likely due to complex solution
-        if all(abs.(real.(x)) .>= tol)
-            println("Solution at complex boundary: ", x)
-            return :complex
-        else
-            println("Tracking terminated_step_size_too_small, but not all comps were above tolerance")
-            println("UNSURE: ", x)
-            return :nonconverged
-        end
+
     else
-        #TRACKING DIDN'T SUCCEED, HIT NEGATIVE, OR COMPLEX SOLUTIONS. WHATS GOING ON?
-        println("Tracking didn't succeed, nor found negative nor complex solutions, : ", return_code)
-        println("t = ", result.t)
-        println("x = ", x)
-        return :nonconverged
+        # Tracking didn't succeed nor found negative solutions: likely complexified or numerically failed
+        println("Tracking didn't succeed, nor found negative solutions. Attempting to solve full system at boundary...")
+        println("Solution: ", x)
+        boundary_result = solve_at_boundary_parameters(
+            syst, real(result.t), initial_parameters, target_parameters;
+            show_progress = true
+        )
+        # NOTABLY, IF TWO SOLUTIONS HERE HAVE SIMILAR REAL PARTS, THEN A REAL-COMPLEX BIFURCATION IS CLOSE
+        println("Solutions at boundary (t = ", result.t, "): ", solutions(boundary_result))
+        #RETURN :complex IF REAL PARTS ARE CLOSE ENOUGH, OTHERWISE :nonconverged
+        return :failed  # you can add logic to inspect roots and refine this to :complexified
     end
 end
 
@@ -668,8 +701,7 @@ end
 """
     trackpositive!(tracker::Tracker, x::AbstractVector, [t1=1.0, t0=0.0]; kwargs...) -> (t_before, x_before)
 
-Track a solution path using homotopy continuation, stopping when any component becomes negative.
-Returns the last positive solution and corresponding homotopy parameter.
+Track a solution path, stop when any component becomes negative.
 """
 function trackpositive!(
     tracker::Tracker,
@@ -696,18 +728,21 @@ function trackpositive!(
         keep_steps = keep_steps,
         max_initial_step_size = max_initial_step_size,
     )
+    #record initial t and equilibrium
     tbefore = t1
-    xbefore = copy(x)
+    xbefore = x
     while is_tracking(tracker.state.code)
+        #record quantities before and after step
         tbefore = tracker.state.t
         xbefore = copy(tracker.state.x)
         step!(tracker, debug)
+        #after a tracking step, check if any of the components are negative.
         if any(real(tracker.state.x) .< 0)
-            return real(tbefore), xbefore
+            #return the component before negative solution was found
+            return real(tbefore), real(xbefore)
         end
     end
-    #println("Tracker state code: ", tracker.state.code)
-    return real(tbefore), xbefore
+    return real(tbefore), real(xbefore)
 end
 
 # --- Higher level tracking monitor ---
@@ -737,12 +772,8 @@ function track_and_monitor!(
     result = TrackerResult(tracker.homotopy, tracker.state)
     t_after = real(result.t)
     x_after = result.solution
-    println("t_after = ", t_after)
-    println("x_after = ", x_after)
     #store some tracking output
-    retcode = result.return_code #gives whether tracking succeded, failed, or sotpped
-    #println("Return code: ", retcode, " at t = ", t_after, " with x = ", x_after)
-    flag = decide_boundary_type(result, tracker, tol)
+    flag = decide_boundary_type(syst, tracker, result, tol, initial_parameters, target_parameters)
     return tbefore, xbefore, t_after, x_after, flag
 end
 
@@ -760,8 +791,7 @@ function findparscrit(
     println("Initial parameters: ", initial_parameters)
     println("Target parameters: ", target_parameters)
     t_before, x_before, t_after, x_after, flag = track_and_monitor!(
-        syst, initialsol, initial_parameters, target_parameters, tol
-    )
+        syst, initialsol, initial_parameters, target_parameters, tol)
     #println("Flag: ", flag)
     if flag == :negative || flag == :complex || flag == :boundary
         # No boundary was crossed, max perturbation reached
@@ -770,7 +800,7 @@ function findparscrit(
         #println("Finished at: ", flag, " equilibrium: ", output.xstar_crit)
         return output
     elseif rec_level > 10
-        output = process_output_boundary(initial_parameters, x_before, :nonconverged)
+        output = process_output_boundary(initial_parameters, x_after, :nonconverged)
         return output
     else
         # Still need to refine toward boundary

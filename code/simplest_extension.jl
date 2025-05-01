@@ -148,7 +148,6 @@ for n in 2:2
 
                     for alpha_i in alpha_vec  # Loop through each relative strength value
                         syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
-                        println("")
                         println("SIMULATION: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
                         pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
                         if pars_crit == -1
