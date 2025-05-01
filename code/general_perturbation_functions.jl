@@ -627,17 +627,39 @@ Contents:
     return minimum(abs.(real(x))) < tol
 end
 
-@inline function is_real(x::AbstractVector, tol::Float64)
-    return maximum(abs.(imag.(x))) < tol
-end
-
-function decide_boundary_type(x::AbstractVector, tol::Float64)
-    if !is_real(x, tol)
-        return :complex
-    elseif !is_positive(x, tol)
-        return :negative
+function decide_boundary_type(result::TrackerResult, tracker::Tracker, tol::Float64)
+    return_code = result.return_code
+    x = result.solution
+    if return_code == :success
+        #tracking was successful and solution is positive
+        #println("Solution is positive throughout: ", x)
+        return :boundary
+    elseif return_code == :tracking
+        #tracking was interrupted manually by trackpositive
+        if any(abs.(real.(x)) .< tol)
+            println("Solution at negative boundary: ", x)
+            return :negative
+        else
+            println("Solution became negative but above tolerance", x)
+            return :nonconverged
+        end
+    elseif return_code == :terminated_step_size_too_small
+        #solution was not manually interrupted, but tracking stopped because of small step size
+        #likely due to complex solution
+        if all(abs.(real.(x)) .>= tol)
+            println("Solution at complex boundary: ", x)
+            return :complex
+        else
+            println("Tracking terminated_step_size_too_small, but not all comps were above tolerance")
+            println("UNSURE: ", x)
+            return :nonconverged
+        end
     else
-        return :success
+        #TRACKING DIDN'T SUCCEED, HIT NEGATIVE, OR COMPLEX SOLUTIONS. WHATS GOING ON?
+        println("Tracking didn't succeed, nor found negative nor complex solutions, : ", return_code)
+        println("t = ", result.t)
+        println("x = ", x)
+        return :nonconverged
     end
 end
 
@@ -684,6 +706,7 @@ function trackpositive!(
             return real(tbefore), xbefore
         end
     end
+    #println("Tracker state code: ", tracker.state.code)
     return real(tbefore), xbefore
 end
 
@@ -701,20 +724,25 @@ function track_and_monitor!(
     initial_parameters::Vector{Float64},
     target_parameters::Vector{Float64},
     tol::Float64,
-    max_step_ratio::Float64 = 0.1
+    max_step_ratio::Float64 = 1.
 )   
     par_dist = norm(initial_parameters - target_parameters)
-    max_step_size = par_dist * max_step_ratio
+    #the maximum step size should be 10 times smaller than the parameter euclidean distance
+    max_step_size = par_dist * max_step_ratio 
 
     tracker = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
-                                           target_coefficients = target_parameters))
-    tbefore, xbefore = trackpositive!(tracker, initialsol, 1.0, 0.0, max_initial_step_size = max_step_size)
+                                           target_coefficients = target_parameters);
+                                           options = TrackerOptions(max_steps = Int(1e6))) #increased number of steps
+    tbefore, xbefore = trackpositive!(tracker, initialsol, 1.0, 0.0, max_initial_step_size = max_step_size) #adjusted max_initial_step_size
     result = TrackerResult(tracker.homotopy, tracker.state)
-
     t_after = real(result.t)
     x_after = result.solution
-
-    flag = decide_boundary_type(x_after, tol)
+    println("t_after = ", t_after)
+    println("x_after = ", x_after)
+    #store some tracking output
+    retcode = result.return_code #gives whether tracking succeded, failed, or sotpped
+    #println("Return code: ", retcode, " at t = ", t_after, " with x = ", x_after)
+    flag = decide_boundary_type(result, tracker, tol)
     return tbefore, xbefore, t_after, x_after, flag
 end
 
@@ -728,18 +756,21 @@ function findparscrit(
     tol::Float64 = 1e-9,
     rec_level::Int = 1
 )
+    println("Recursion level: ", rec_level)
+    println("Initial parameters: ", initial_parameters)
+    println("Target parameters: ", target_parameters)
     t_before, x_before, t_after, x_after, flag = track_and_monitor!(
         syst, initialsol, initial_parameters, target_parameters, tol
     )
-    if flag == :success
-        # No boundary was crossed — still return formatted output
-        output = process_output_boundary(target_parameters, x_after, :success)
-        println(output.xstar_crit)
+    #println("Flag: ", flag)
+    if flag == :negative || flag == :complex || flag == :boundary
+        # No boundary was crossed, max perturbation reached
+        output = process_output_boundary(target_parameters, x_after, flag)
+        #println("")
+        #println("Finished at: ", flag, " equilibrium: ", output.xstar_crit)
         return output
-    elseif rec_level > 200
+    elseif rec_level > 10
         output = process_output_boundary(initial_parameters, x_before, :nonconverged)
-        println("Search did not converge.")
-        println(output.xstar_crit)
         return output
     else
         # Still need to refine toward boundary
@@ -774,35 +805,35 @@ function process_output_boundary(
     )
 end
 
-#test all functions 
+# #test all functions 
 
-n = 2
-d = 2
-rng = MersenneTwister(1)
+# n = 2
+# d = 2
+# rng = MersenneTwister(1)
 
-pars = sample_parameters(2, 3, rng)
+# pars = sample_parameters(2, 3, rng)
 
-#get perturbations on the unit sphere
+# #get perturbations on the unit sphere
 
-perts = points_hypersphere(2, 1.0, 10)
-rhomax = 0.5
-r = pars[1]
+# perts = points_hypersphere(2, 1.0, 10)
+# rhomax = 0.5
+# r = pars[1]
 
-@var  x[1:2]
-@var α[1:2]
+# @var  x[1:2]
+# @var α[1:2]
 
-eqs = build_glvhoi(pars, x)
-ref_eqs, coeffs_mat = get_ref_polynomials(x, d, 2, coeff_name = :c)
-inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
-eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
-eqs_inter_str = parametrize_strengths(eqs_inter, x, α)
-syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
+# eqs = build_glvhoi(pars, x)
+# ref_eqs, coeffs_mat = get_ref_polynomials(x, d, 2, coeff_name = :c)
+# inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
+# eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
+# eqs_inter_str = parametrize_strengths(eqs_inter, x, α)
+# syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
 
-#evaluate system at α = 0.5
+# #evaluate system at α = 0.5
 
-#set up a particular solution to this system
-start_solutions = repeat([1], n)
-initial_parameters = vcat(r, [0.5, 0.5])
-end_parameters = vcat(r .+ rhomax*perts[1,:], [0.5, 0.5])
+# #set up a particular solution to this system
+# start_solutions = repeat([1], n)
+# initial_parameters = vcat(r, [0.5, 0.5])
+# end_parameters = vcat(r .+ rhomax*perts[1,:], [0.5, 0.5])
 
-pars_crit, xstar_crit, flag = findparscrit(syst, start_solutions, initial_parameters, end_parameters)
+# pars_crit, xstar_crit, flag = findparscrit(syst, start_solutions, initial_parameters, end_parameters)

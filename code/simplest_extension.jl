@@ -1,6 +1,6 @@
 using DelimitedFiles
 using LinearAlgebra
-include("general_perturbations_functions.jl")
+include("general_perturbation_functions.jl")
 # (rest of your simplest_extension.jl exactly as you provided)
 #this script deals with the question: 
 #how does the histogram of distances change when
@@ -106,17 +106,17 @@ end
 
 #set fix parameters for simulations
 
-nsim = 1000  # Number of systems to look at
+nsim = 1  # Number of systems to look at
 d = 2; @var α[1:d]  # Degree of polynomials to solve
 pert_size = 10.0  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
-n_perts = 1000  # Number of perturbations
+n_perts = 3  # Number of perturbations
 alpha_vec = [0.1, 0.9]  # Values of relative interaction strength
 
 # Loop over n from 3 to 7
-for n in 3:7
+for n in 2:2
     @var x[1:n]  # Number of equations; corresponding variables
-    init_sol = repeat([1], n)  # Set initial solution to 1
+    init_sol = repeat([1.0 + 0.0im])  # Set initial solutions as two arrays
     # Build skeleton polynomial system for curren n (and d)
     ref_eqs, coeffs_mat = get_ref_polynomials(x, d, n)
     pert_dirs = points_hypersphere(n, 1.0, n_perts, false)  # Perturbation directions (try to sample regularly)
@@ -134,12 +134,11 @@ for n in 3:7
 
                 # Build system parametrizing strengths and parameters to be perturbed
                 syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
-
                 # Calculate the coefficients and degrees for the system
-                coeff_deg_matrix = coefficients_degree_mat(syst, vcat(variables(syst), parameters(syst)))
+                coeff_deg_matrix = coefficients_degree_mat(System(eqs, x), vcat(variables(syst), parameters(syst)))
                 seed_column = fill(seed_i, size(coeff_deg_matrix, 1))
 
-                
+                println("Writing coefficients for seed $seed_i")
                 # Save coefficient-degree matrix to a se    parate file named by `n` and `seed_i`
                 writedlm(param_io, hcat(seed_column, coeff_deg_matrix), ' ')
 
@@ -149,28 +148,28 @@ for n in 3:7
 
                     for alpha_i in alpha_vec  # Loop through each relative strength value
                         syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
-                        println("Simulation: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
+                        println("")
+                        println("SIMULATION: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
                         pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
                         if pars_crit == -1
                             return pars, pert_size, pert_dirs[pert_i,:], alpha_i
                         end
+                        #compute euclidean distance between unperturbed and critical parameters
                         δₚ = norm(pars_crit .- initial_pars)
+                        #compute euclidean distance between unperturbed and critical equilibrium
+                        δₓ = norm(xstar_crit .- ones(n))  # Distance to (1, ..., 1)
+
+                        # Linear approximations (equilibrium given critical parameters)
+                        xcrit_lin = get_x_star_linear(pars, pars_crit, alpha_i, real(init_sol))
+                        #(parameters given critical equilibrium)
+                        rcrit_lin = get_r_star_linear(pars, real(xstar_crit), alpha_i, real(init_sol))
                         
-                        writedlm(io, iteration_result, ' ')  # Store simulation results
-
-                        #compute equilibrium given critical parameters
-                        xcrit_dist = norm(xstar_crit .- ones(n))  # Distance to (1, ..., 1)
-
-                        # Linear approximations
-                        xcrit_lin = get_x_star_linear(syst_pars, pars_crit, alpha_i, init_sol)
-                        rcrit_lin = get_r_star_linear(syst_pars, init_sol, xstar_crit, alpha_i)
-
-                        # Distances between critical and linearized equilibrium and parameters
-                        δₓ_lin = norm(xcrit .- xcrit_lin)
-                        δᵣ_lin = norm(rcrit .- rcrit_lin)
+                        # compare critical parameters and equilibrium with linear versions
+                        δₓₗᵢₙ = norm(xstar_crit .- xcrit_lin)
+                        δₚₗᵢₙ = norm(initial_pars .- rcrit_lin)
 
                         # Save results
-                        iteration_result = [seed_i, n, d, pert_size, pert_i, alpha_i, δₚ, δᵣ_lin, xcrit_dist, δₓ_lin]
+                        iteration_result = [seed_i, n, d, pert_size, pert_i, alpha_i, δₚ, δₚₗᵢₙ, δₓ, δₓₗᵢₙ]
                         writedlm(io, iteration_result', ' ')  # Transpose to make it a row
                     end
                 end

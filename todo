@@ -49,3 +49,8 @@ Fill out:
 
 	Save output of Thompson problem to be loaded by my program. Perform thompson problem up to n=6, for 500 points each.
 	Code the higher order interaction models with order of interactions d = 4. Have two parameters, alpha and beta, and vary them in the simplex
+
+#### Apr 28,2025
+
+	1. Complex solutions are never returned (root finder automatically handles these ones). Therefore it looks like the search never converges. Find a different way to mark complex boundary
+	2. Implement verification according to pauls paper

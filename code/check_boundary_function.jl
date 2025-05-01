@@ -24,7 +24,7 @@ d = 2
 ref_eqs, coeffs_mat = get_ref_polynomials(x, d, n, coeff_name = :c)
 
 #set a random seed
-rng = MersenneTwister(1)
+rng = MersenneTwister(9) #6, 7
 #seed=2 with pert_size=1.0 generates only positive solutions
 pars = sample_parameters(n, d+1, rng)
 #build glv system with sampled parameters
