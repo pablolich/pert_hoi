@@ -4,6 +4,7 @@
 using HomotopyContinuation
 using IterTools
 using Random
+using LinearAlgebra
 
 """
 generate random points on the surface of a n-dimensional hypersphere of radius rho.
@@ -645,6 +646,7 @@ function solve_at_boundary_parameters(
     kwargs...
 )
     # Interpolate parameters at t_star
+    #t_star = 1
     p_star = t_star .* initial_parameters .+ (1 - t_star) .* target_parameters
 
     # Fix the parameters in the system
@@ -682,17 +684,24 @@ function decide_boundary_type(
         end
 
     else
-        # Tracking didn't succeed nor found negative solutions: likely complexified or numerically failed
+        # Tracking didn't succeed nor found negative solutions: likely due to transition to complex solutions or numerical instability
         println("Tracking didn't succeed, nor found negative solutions. Attempting to solve full system at boundary...")
         println("Solution: ", x)
         boundary_result = solve_at_boundary_parameters(
             syst, real(result.t), initial_parameters, target_parameters;
             show_progress = true
         )
-        # NOTABLY, IF TWO SOLUTIONS HERE HAVE SIMILAR REAL PARTS, THEN A REAL-COMPLEX BIFURCATION IS CLOSE
-        println("Solutions at boundary (t = ", result.t, "): ", solutions(boundary_result))
-        #RETURN :complex IF REAL PARTS ARE CLOSE ENOUGH, OTHERWISE :nonconverged
-        return :failed  # you can add logic to inspect roots and refine this to :complexified
+        n_solutions = nsolutions(boundary_result)
+        deg = degree(syst.expressions[1], variables(syst))
+        n = length(variables(syst))
+        if n_solutions < deg^n
+            println("At a complex bifurcation (", n_solutions, " solutions found, expected ", deg^n, ")")
+            return :complex
+        end
+
+        #otherwise, return :nonconverged
+        println("No complex solution found at boundary, distances are: ")
+        return :nonconverged  # you can add logic to inspect roots and refine this to :complexified
     end
 end
 
@@ -799,11 +808,11 @@ function findparscrit(
         #println("")
         #println("Finished at: ", flag, " equilibrium: ", output.xstar_crit)
         return output
-    elseif rec_level > 10
-        output = process_output_boundary(initial_parameters, x_after, :nonconverged)
+    elseif rec_level > 5
+        output = process_output_boundary(initial_parameters, x_after, flag)
         return output
     else
-        # Still need to refine toward boundary
+        # Need to refine further toward boundary
         initpars = get_parameters_at_t(t_before, initial_parameters, target_parameters)
         endpars = get_parameters_at_t(t_after, initial_parameters, target_parameters)
 

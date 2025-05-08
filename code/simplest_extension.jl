@@ -1,12 +1,12 @@
 using DelimitedFiles
 using LinearAlgebra
 include("general_perturbation_functions.jl")
-# (rest of your simplest_extension.jl exactly as you provided)
 #this script deals with the question: 
 #how does the histogram of distances change when
-#d = 2, we perturb growth rates (d_pert = 0), vary from 2 to 7, 
+#d = 2, we perturb growth rates (d_pert = 0), n vary from 2 to 7, 
 #the maximum perturbation magnitude is 10
 #vary alpha, perturbation direction, and look at different parameter sets, indexed by their seed.
+#compare with linear approximation
 
 """
 Given parameters (alpha, A, B and the unperturbed equilibria x0), compute Jacobian of system.
@@ -148,6 +148,7 @@ for n in 2:2
 
                     for alpha_i in alpha_vec  # Loop through each relative strength value
                         syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
+                        println("")
                         println("SIMULATION: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
                         pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
                         if pars_crit == -1
