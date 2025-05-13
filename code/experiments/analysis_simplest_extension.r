@@ -1,77 +1,67 @@
 library(tidyverse)
 library(gridExtra)
 
-dat2 = read.table("../../data/results_simplest_extension_n_2.csv", sep = "")
-dat3 = read.table("../../data/results_simplest_extension_n_3.csv", sep = "")
-dat4 = read.table("../../data/results_simplest_extension_n_4.csv", sep = "")
-dat5 = read.table("../../data/results_simplest_extension_n_5.csv", sep = "")
-dat6 = read.table("../../data/results_simplest_extension_n_6.csv", sep = "")
-dat7 = read.table("../../data/results_simplest_extension_n_7.csv", sep = "")
-dat8 = read.table("../../data/results_simplest_extension_n_8.csv", sep = "")
+# dat2 = read.table("../data/results_simplest_extension_n_2.csv", sep = "")
+dat = read.table("../data/results_simplest_extension_n_3.csv", sep = "")
+# dat4 = read.table("../data/results_simplest_extension_n_4.csv", sep = "")
+# dat5 = read.table("../data/results_simplest_extension_n_5.csv", sep = "")
+# dat6 = read.table("../data/results_simplest_extension_n_6.csv", sep = "")
+# dat7 = read.table("../data/results_simplest_extension_n_7.csv", sep = "")
+# dat8 = read.table("../../data/results_simplest_extension_n_8.csv", sep = "")
 
-
-dat = rbind(dat2, dat3, dat4, dat5, dat6, dat7, dat8)
+#dat = rbind(dat2, dat3, dat4, dat5, dat6, dat7, dat8)
 colnames(dat) = c("seed", "n", "alpha", "pert_dir", "delta")
 
+#colnames(dat) = c("seed", "n", "d", "pert_size", "pert_dir", "alpha", "delta", "delta_lin", "delta_x", "delta_x_lin")
 
-datplot = dat %>% filter(delta < 4) %>% 
+
+datplot = dat %>% filter(#delta < 4,
+                         seed >= 1) %>% 
   mutate(alpha = factor(alpha, levels = c(0.1, 0.9)))
 
+#load parameters
+
+#datpar = read.table("../data/parameters_n_2", sep = "")
 ###########################################################################
 
 #Analysis histogram by histogram, n by n
+pdf("histograms_n_3.pdf", height = 3, width = 8)
 
-datplot %>%
-  group_by(n) %>%
-  do({
-    # For each value of n, create a separate PDF file
-    n_value <- unique(.$n)  # Get the current 'n' value
+# Loop over each seed for n = 3
+unique(datplot$seed) %>%
+  walk(function(seed_value) {
+    seed_data <- filter(datplot, seed == seed_value)
     
-    # Open a new PDF file for the current 'n'
-    pdf_file <- paste0("histograms_n_", n_value, ".pdf")
-    pdf(pdf_file, height = 3, width = 8)  # Open the PDF device with width to fit both plots
+    # Compute mean and median per alpha
+    summary_lines <- seed_data %>%
+      group_by(alpha) %>%
+      summarise(
+        mean = mean(delta, na.rm = TRUE),
+        median = median(delta, na.rm = TRUE),
+        .groups = "drop"
+      )
     
-    # Iterate over each unique 'seed' for the current 'n'
-    lapply(unique(.$seed), function(seed_value) {
-      # Filter data for the current seed
-      seed_data <- filter(., seed == seed_value)
-      
-      # Create the histogram plot
-      histogram_plot <- ggplot(seed_data, aes(x = delta, fill = factor(alpha))) +
-        geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
-        labs(title = paste("Histogram of delta by alpha for seed =", seed_value), 
-             x = "Delta", 
-             y = "Frequency") +
-        theme_minimal()
-      
-      if (seed == 838){
-        browser()
-      }
-      seed_data_wide <- seed_data %>% 
-        mutate(row = row_number()) %>% 
-        pivot_wider(names_from = alpha, values_from = delta, names_prefix = "alpha_") %>%
-        group_by(seed, n, pert_dir) %>%
-        mutate(alpha_0.9 = c(alpha_0.9[-1], alpha_0.9[1])) %>%
-        na.omit() %>% 
-        mutate(diff = alpha_0.9 - alpha_0.1,
-               sign = ifelse(diff >= 0, "Positive", "Negative"))
-      
-      histogram_dist_var = ggplot(seed_data_wide, aes(x = alpha_0.9 - alpha_0.1,
-                                                      fill = sign))+
-        geom_histogram(bins = 30,
-                       position = "identity",
-                       alpha = 0.5)
-      
-      # Arrange both plots side by side
-      grid.arrange(histogram_plot, histogram_dist_var, ncol = 2)
-    })
+    # Plot histogram with mean/median lines
+    print(seed_value)
+    histogram_plot <- ggplot(seed_data, aes(x = delta, fill = factor(alpha))) +
+      geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+      geom_vline(data = summary_lines, aes(xintercept = median, color = factor(alpha)),
+                 linetype = "solid", size = 1, show.legend = FALSE) +
+      geom_vline(data = summary_lines, aes(xintercept = mean, color = factor(alpha)),
+                 linetype = "dashed", size = 1, show.legend = FALSE) +
+      scale_color_manual(values = c("0.1" = "#F8766D", "0.9" = "#00BFC4")) +
+      scale_fill_manual(values = c("0.1" = "#F8766D", "0.9" = "#00BFC4")) +
+      labs(
+        title = paste("Histogram of delta by alpha for seed =", seed_value),
+        x = "Delta",
+        y = "Frequency"
+      ) +
+      theme_minimal()
     
-    # Close the PDF file after adding all the plots
-    dev.off()
-    
-    # Return the grouped data (optional)
-    .
+    print(histogram_plot)
   })
+
+dev.off()
 
 ############################################################################
 #ANALYSIS OF DISTANCES

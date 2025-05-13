@@ -1,12 +1,50 @@
+using DelimitedFiles
+using Serialization
+using LinearAlgebra
+include("../source_function/general_perturbation_functions.jl")
 #this script deals with the question: 
 #how does the histogram of distances change when
-#d = 2, we perturb growth rates (d_pert = 0), vary from 2 to 7, 
+#d = 2, we perturb growth rates (d_pert = 0), n vary from 2 to 7, 
 #the maximum perturbation magnitude is 10
 #vary alpha, perturbation direction, and look at different parameter sets, indexed by their seed.
+#compare with linear approximation
 
-using DelimitedFiles
+"""
+Given parameters (alpha, A, B and the unperturbed equilibria x0), compute Jacobian of system.
+"""
+function get_jacobian(
+    pars::Tuple{Vector{Float64}, Matrix{Float64}, Array{Float64,3}},
+    alpha::Float64,
+    x0::Vector{Float64})
+    r, A, B = pars
+    n = length(r)
+    M = (1 - alpha) * A + alpha * sum(B[:, :, k] + B[:, k, :] for k in 1:n) .* x0'
+    return M
+end
 
-include("../source_function/general_perturbation_functions.jl")
+"""
+given parameters (vector r) and a matrix M, compute equilibria using linear approximation
+"""
+function get_x_star_linear(
+    syst_pars::Tuple{Vector{Float64}, Matrix{Float64}, Array{Float64,3}}, 
+    crit_pars::Vector{Float64}, 
+    alpha::Float64, 
+    x0::Vector{Float64})
+    M = get_jacobian(syst_pars, alpha, x0)
+    return -inv(M)*crit_pars
+end
+
+"""
+given parameters (vector r) and a matrix M, compute equilibria using linear approximation
+"""
+function get_r_star_linear(
+    syst_pars::Tuple{Vector{Float64}, Matrix{Float64}, Array{Float64,3}}, 
+    crit_x::Vector{Float64}, 
+    alpha::Float64, 
+    x0::Vector{Float64})
+    M = get_jacobian(syst_pars, alpha, x0)
+    return -inv(M)*crit_x
+end
 
 """
 wrapper for readibility; runs in series all the functions necessary to prepare the system for 
@@ -68,64 +106,113 @@ function coefficients_degree_mat(
 end
 
 #set fix parameters for simulations
+"""
+Flatten a tuple of parameter tensors into a single row.
+Each group is assumed to be a tensor of shape ntuple(_ -> n, i) for i = 1:order
+"""
+function flatten_parameters(seed::Int, params::Tuple)
+    flat = vcat(seed, mapreduce(x -> x[:], vcat, params))
+    return flat
+end
 
-nsim = 1000  # Number of systems to look at
-d = 2; @var α[1:d]  # Degree of polynomials to solve
-pert_size = 10.0  # Maximum perturbation
+using Serialization
+
+"""
+    generate_and_save_parameter_sets(nsim::Int, n::Int, d::Int, folder::String)
+
+Generates `nsim` parameter sets for `n` species and polynomial degree `d` (order = d + 1),
+with constraints ensuring the equilibrium at (1,...,1). Saves one file per seed in binary format.
+"""
+function generate_and_save_parameter_sets(nsim::Int, n::Int, d::Int, folder::String)
+    order = d + 1
+    seeds = 1:nsim
+
+    # Create the output directory if it doesn't exist
+    isdir(folder) || mkpath(folder)
+
+    for seed_i in seeds
+        rng = MersenneTwister(seed_i)
+        pars = sample_parameters(n, order, rng)
+        filepath = joinpath(folder, "parameters_n$(n)_seed$(seed_i).bin")
+        open(filepath, "w") do io
+            serialize(io, (seed_i, pars))
+        end
+    end
+end
+
+function load_parameter_set(n::Int, seed::Int, folder::String)
+    filepath = joinpath(folder, "parameters_n$(n)_seed$(seed).bin")
+    return deserialize(open(filepath))
+end
+
+#ECOSYSTEMS TO BE STUDIED
+nsim = 1000  # Number simulations
+d = 2; @var α[1:d]  # Degree of polynomials to solve (interaction order of ecosystem is d+1)
+nspp = 3 #number of species
+#pre-generate all parameter sets
+generate_and_save_parameter_sets(nsim, nspp, d, "../../data/parameter_sets")
+# Load pre-generated parameters
+alpha_vec = [0.1, 0.9]  # Values of relative interaction strength for each interaction order
+
+
+#PERTURBATIONS TO BE STUDIED
+pert_size = 10  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
-n_perts = 1000  # Number of perturbations
-alpha_vec = [0.1, 0.9]  # Values of relative interaction strength
+#load perturbation directions from file
+pts = readdlm("../../data/thompson_perturbations/optimized_n500_d3_cost_115802.750913.txt")
+pert_dirs = sqrt.(sum(pts.^2, dims=2))  # normalize each point
+n_perts = length(pert_dirs)  # Number of perturbations
+
 
 # Loop over n from 3 to 7
-for n in 3:7
+for n in nspp:nspp
     @var x[1:n]  # Number of equations; corresponding variables
-    init_sol = repeat([1], n)  # Set initial solution to 1
+    init_sol = repeat([1.0 + 0.0im], n)  # Set initial solutions as an array of size n
     # Build skeleton polynomial system for curren n (and d)
     ref_eqs, coeffs_mat = get_ref_polynomials(x, d, n)
-    pert_dirs = points_hypersphere(n, 1.0, n_perts, false)  # Perturbation directions (try to sample regularly)
-    open("../../data/results_simplest_extension_n_$(n).csv", "a") do io
+    #pert_dirs = points_hypersphere(n, 1.0, n_perts, false)  # Perturbation directions (try to sample regularly)
+    open("../../data/boundary_distances/n_$(n).csv", "a") do io
         # Open another file for saving all parameters for each n, seed_i
-        open("../../data/parameters_n_$(n).csv", "a") do param_io
-            # Run all simulations
-            for seed_i in 1:nsim
-                rng = MersenneTwister(seed_i)
-                # Sample parameters. Note that they are deterministic given n, order and rng.
-                pars = sample_parameters(n, d+1, rng)
-                initial_pars = pars[1]
-                # Build numerical glvhoi system
-                eqs = build_glvhoi(pars, x)
+        # Run all simulations
+        for seed_i in 1:nsim
+            seed_i, pars = load_parameter_set(n, seed_i, "../../data/parameter_sets/")
+            initial_pars = pars[1] #the r's 
+            # Build numerical glvhoi system
+            eqs = build_glvhoi(pars, x)
 
-                # Build system parametrizing strengths and parameters to be perturbed
-                syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
+            # Build system parametrizing strengths and parameters to be perturbed
+            syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
+        
+            # Store the results of the simulation in the main CSV file
+            for pert_i in 1:n_perts 
+                end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i,:]
 
-                # Calculate the coefficients and degrees for the system
-                coeff_deg_matrix = coefficients_degree_mat(syst, vcat(variables(syst), parameters(syst)))
-                seed_column = fill(seed_i, size(coeff_deg_matrix, 1))
-
-                
-                # Save coefficient-degree matrix to a se    parate file named by `n` and `seed_i`
-                writedlm(param_io, hcat(seed_column, coeff_deg_matrix), ' ')
-
-                # Store the results of the simulation in the main CSV file
-                for pert_i in 1:n_perts 
-                    end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i,:]
-
-                    for alpha_i in alpha_vec  # Loop through each relative strength value
-                        syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
-                        println("Simulation: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
-                        pars_crit = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
-                        if pars_crit == -1
-                            return pars, pert_size, pert_dirs[pert_i,:], alpha_i
-                        end
-                        δₚ = norm(pars_crit .- initial_pars)
-                        
-                        iteration_result = [seed_i n alpha_i pert_i δₚ]
-                        writedlm(io, iteration_result, ' ')  # Store simulation results
-                        # Compute critical equilibria, and Euclidean distance to the (1, 1) equilibrium
-                        # Given the critical parameters, compute what would be the critical equilibria using linear approximation
-                        # Given the critical equilibria, compute what would be the critical parameters using linear approximation
-                        # Store seed, n, d, order, pert_dir, alpha, \delta_r, \delta_r_lin, \delta_x, \delta_x_lin
+                for alpha_i in alpha_vec  # Loop through each relative strength value
+                    syst_alpha = evaluate_pars(syst, α, [1-alpha_i, alpha_i])
+                    println("")
+                    println("SIMULATION: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
+                    pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
+                    if pars_crit == -1
+                        return pars, pert_size, pert_dirs[pert_i,:], alpha_i
                     end
+                    #compute euclidean distance between unperturbed and critical parameters
+                    δₚ = norm(pars_crit .- initial_pars)
+                    #compute euclidean distance between unperturbed and critical equilibrium
+                    δₓ = norm(xstar_crit .- ones(n))  # Distance to (1, ..., 1)
+
+                    # Linear approximations (equilibrium given critical parameters)
+                    xcrit_lin = get_x_star_linear(pars, pars_crit, alpha_i, real(init_sol))
+                    #(parameters given critical equilibrium)
+                    rcrit_lin = get_r_star_linear(pars, real(xstar_crit), alpha_i, real(init_sol))
+                    
+                    # compare critical parameters and equilibrium with linear versions
+                    δₓₗᵢₙ = norm(xstar_crit .- xcrit_lin)
+                    δₚₗᵢₙ = norm(initial_pars .- rcrit_lin)
+
+                    # Save results
+                    iteration_result = [seed_i, n, d, pert_size, pert_i, alpha_i, δₚ, δₚₗᵢₙ, δₓ, δₓₗᵢₙ, flag]
+                    println("Iteration result: ", iteration_result)
+                    writedlm(io, permutedims(iteration_result), ' ')
                 end
             end
         end
