@@ -1,7 +1,7 @@
 using DelimitedFiles
 using Serialization
 using LinearAlgebra
-include("../source_function/general_perturbation_functions.jl")
+include("../general_perturbation_functions.jl")
 #this script deals with the question: 
 #how does the histogram of distances change when
 #d = 2, we perturb growth rates (d_pert = 0), n vary from 2 to 7, 
@@ -159,8 +159,9 @@ alpha_vec = [0.1, 0.9]  # Values of relative interaction strength for each inter
 pert_size = 10  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
 #load perturbation directions from file
-pts = readdlm("../../data/thompson_perturbations/optimized_n500_d3_cost_115802.750913.txt")
-pert_dirs = sqrt.(sum(pts.^2, dims=2))  # normalize each point
+#pts = readdlm("../../data/thompson_perturbations/optimized_n500_d3_cost_115802.750913.txt")
+#pert_dirs = sqrt.(sum(pts.^2, dims=2))  # normalize each point
+pert_dirs = points_hypersphere(3, 1.0, 20, false)
 n_perts = length(pert_dirs)  # Number of perturbations
 
 
@@ -184,7 +185,7 @@ for n in nspp:nspp
             syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
         
             # Store the results of the simulation in the main CSV file
-            for pert_i in 1:n_perts 
+            for pert_i in 1:10 
                 end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i,:]
 
                 for alpha_i in alpha_vec  # Loop through each relative strength value
@@ -192,6 +193,7 @@ for n in nspp:nspp
                     println("")
                     println("SIMULATION: ", seed_i, " parameter set: ", pert_i, " n: ", n, " relative strength: ", alpha_i)
                     pars_crit, xstar_crit, flag = findparscrit(syst_alpha, init_sol, initial_pars, end_parameters)
+                    println("PARS", pars_crit)
                     if pars_crit == -1
                         return pars, pert_size, pert_dirs[pert_i,:], alpha_i
                     end

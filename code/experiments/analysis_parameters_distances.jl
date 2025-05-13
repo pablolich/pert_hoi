@@ -36,11 +36,12 @@ function histogram_by_order_plot(df::DataFrame)
 
     for (i, order_val) in enumerate(orders)
         ax = Axis(fig[1, i], title = "Order = $order_val", xlabel = "value", ylabel = "count")
+        #Makie.xlims!(ax, -2, 2)
 
         for class in robustness_classes
             subset = df[(df.order .== order_val) .&& (df.robustness .== class), :]
             if nrow(subset) > 0
-                histogram!(ax, subset.value;
+                hist!(ax, subset.value;
                     bins = 50,
                     normalization = :none,
                     strokewidth = 0.5,
@@ -82,7 +83,8 @@ joined.dvar = joined.var_0_9 .- joined.var_0_1
 # Select result
 result_df = select(joined, :seed_i, :n, :d, :pert_size, :dmean, :dvar)
 
-result_df = transform(result_df, [:dmean, :dvar] => ByRow((dm, dv) -> 
+result_df = transform(joined, [:dmean, :dvar] => ByRow((dm, dv) -> 
+    ismissing(dm) || ismissing(dv) ? "UNCLEAR" :
     dm > 0 && dv > 0 ? "INCREASE" :
     dm < 0 && dv < 0 ? "DECREASE" : "UNCLEAR") => :robustness)
 
@@ -103,4 +105,4 @@ dropmissing!(filtered_df)
 filtered_df.robustness = categorical(filtered_df.robustness)
 
 fig = histogram_by_order_plot(filtered_df)
-save("../figures/parameter_density_by_robustness_makie.pdf", fig)
+save("../../figures/parameter_density_by_robustness_makie.pdf", fig)
