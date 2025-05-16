@@ -1,0 +1,53 @@
+parsePolynomial = p -> replace("ii","im",replace("p[0-9]+","0",toExternalString p))
+
+writeSystem = method(Options=>{})
+writeSystem (List, File) := o -> (P,f) -> (
+    R := ring first P;
+    vars := apply(gens R, toString);
+    concatenate(mingle(vars, (#vars-1):1));
+    f << "# This file was auto generated from Macaulay2.\n";
+    f << "# For more information about HomotopyContinuation.jl visit:\n";
+    f << "#    https://www.JuliaHomotopyContinuation.org\n";
+    eqnCommas:=(#P-1):", ";
+    f << "\n";
+    f <<" " | concatenate mingle(
+	apply(P,e->parsePolynomial e), eqnCommas)| ";\n";
+    )
+writeSystem (List, String) :=o -> (P,filename) -> (
+    f := openOut filename;
+    writeSystem(P,f);
+    close f;
+    )
+writeSystem (Ideal, String) := o -> (I,f) -> (
+    writeSystem(first entries gens I, f)
+    )
+
+R = QQ[x1, x2, r1, r2, a]
+
+A11 = random QQ
+A12 = random QQ
+A21 = random QQ
+A22 = random QQ
+B111 = random QQ
+B112 = random QQ
+B122 = random QQ
+B211 = random QQ
+B212 = random QQ
+B222 = random QQ
+d1 = 0
+d2 = 0
+
+
+f1 = r1 + d1 + (1-a) * (A11 * x1 + A12 * x2) + a * (B111*x1*x1 + B112*x1*x2 + B122*x2*x2)
+f2 = r2 + d2 + (1-a) * (A21 * x1 + A22 * x2) + a * (B211*x1*x1 + B212*x1*x2 + B222*x2*x2)
+
+g1 = x1*x2
+g2 = diff(x1, f1)*diff(x2,f2)-diff(x1,f2)*diff(x2,f1)
+I1 = ideal(f1, f2, g1)
+I2 = ideal(f1, f2, g2)
+J1 = eliminate({x1,x2}, I1)
+J2 = eliminate({x1,x2}, I2)
+
+writeSystem(J1, "J1.jl")
+writeSystem(J2, "J2.jl")
+

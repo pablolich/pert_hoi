@@ -80,7 +80,9 @@ def plot_histogram(initial_points, optimized_points):
     plt.ylabel("Frequency")
     plt.title("Histogram of Pairwise Distances")
     plt.legend()
-    plt.show()
+    n=np.shape(initial_points)[1]
+    plt.savefig(f"plot_{n}.png")
+    plt.close()
 
 def get_best_existing_cost(n, dim):
     """
@@ -124,12 +126,13 @@ def save_solution_if_best(optimized_points, cost, n, dim):
         filename = f"optimized_n{n}_d{dim}_cost_{cost:.6f}.txt"
         np.savetxt(filename, optimized_points, fmt="%.6f")
         print(f"New best solution saved: {filename}")
+        #save also the plot
     else:
         print("No improvement, solution not saved.")
         
-# Loop for n from 2 to 7, with 250 points each time
-n = 25
-for dim in range(2, 8):
+n = 800
+for dim in range(8, 9):
+    print("Dimension: ", dim)
     points = generate_points_on_sphere(n, dim)
 
     initial_guess = points.flatten()
@@ -150,5 +153,3 @@ for dim in range(2, 8):
     print("Distance to nearest neighbor")
     print(nearest_neighbor_distance(optimized_points))
     plot_histogram(points, optimized_points)
-
-

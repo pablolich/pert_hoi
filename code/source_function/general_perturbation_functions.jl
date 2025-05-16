@@ -1,8 +1,10 @@
+
 #functions to perturb any parameter in a glv model of any order
 
 using HomotopyContinuation
 using IterTools
 using Random
+using LinearAlgebra
 
 """
 generate random points on the surface of a n-dimensional hypersphere of radius rho.
@@ -373,7 +375,39 @@ function get_parameters_at_boundary(solution_matrix::Vector{ComplexF64}, paramet
 end
 
 """
-    equivalent of track! but only for positive solutions
+    trackpositive!(tracker::Tracker, x::AbstractVector, [t₁=1.0, t₀=0.0]; kwargs...) -> (t_before, x_before)
+
+Track a solution path using homotopy continuation, stopping when any component of the solution becomes negative.
+
+This function records the last positive solution** before any variable turns negative. 
+It can be useful when following solution paths where only positive (or biologically meaningful) states are valid.
+
+# Arguments
+- `tracker::Tracker`: A Tracker object that manages the path tracking.
+- `x::AbstractVector`: Initial solution.
+- `t₁::Float64`: Target homotopy parameter value (default `1.0`).
+- `t₀::Float64`: Starting homotopy parameter value (default `0.0`).
+
+# Keyword Arguments
+- `ω::Float64`: Angle used for endgames (optional).
+- `μ::Float64`: Scaling parameter for path tracking (optional).
+- `extended_precision::Bool`: Whether to use extended precision (default `false`).
+- `τ::Float64`: Maximum tracking time (default `Inf`).
+- `keep_steps::Bool`: Whether to store intermediate steps (default `false`).
+- `max_initial_step_size::Float64`: Maximum initial step size (default `Inf`).
+- `debug::Bool`: Whether to output debug information during tracking (default `false`).
+
+# Returns
+- `t_before::Float64`: Homotopy parameter value just before encountering a negative component.
+- `x_before::Vector{Float64}`: Solution vector just before encountering a negative component.
+
+# Behavior
+- Initializes the tracker.
+- Continuously steps along the solution path.
+- Monitors the solution after each step.
+- If any coordinate becomes negative (real part), returns the last solution before this happens.
+- If the path ends without any negative components, returns the final solution.
+
 """
 function trackpositive!(
     tracker::Tracker,
@@ -388,6 +422,7 @@ function trackpositive!(
     max_initial_step_size::Float64 = Inf,
     debug::Bool = false,
 )
+    #initialize tracker
     init!(
         tracker,
         x,
@@ -400,6 +435,7 @@ function trackpositive!(
         keep_steps = keep_steps,
         max_initial_step_size = max_initial_step_size,
     )
+    #record initial t and equilibrium
     tbefore = t₁
     xbefore = x
     while is_tracking(tracker.state.code)
@@ -409,6 +445,7 @@ function trackpositive!(
         step!(tracker, debug)
         #after a tracking step, check if any of the components are negative.
         if any(real(tracker.state.x) .< 0)
+            #return the component before negative solution was found
             return real(tbefore), real(xbefore)
         end
     end
@@ -428,7 +465,7 @@ Given a model syst with an equilibrium at initialsol (feasible), for parameters 
 compute parameters for which feasibility is lost when traversing the line 
 t * initial_parameters + (1-t) * target_parameters from t = 1 to t = 0. Feasibility is lost either when
 the solution becomes complex (at least one entry has non-zero imaginary part) or when solution becomes
-negative (at least one entry reaches 0 up to tolerance tol)
+negative (at least one entry reaches 0 up to tolerance)
 """
 function findparscrit(
     syst::System,
@@ -439,7 +476,7 @@ function findparscrit(
     rec_level::Int64=1)
     #compute the euclidean distance between parameters to determine maximum step size of homotopy
     par_dist = norm(initial_parameters - target_parameters)
-    max_step_size = par_dist/10
+    max_step_size = par_dist/10 #the maximum step size should be 10 times smaller than the parameter euclidean distance
     #create a tracker to traverse parameter space from initial to target parameters
     ct = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
                                          target_coefficients = target_parameters))
@@ -460,30 +497,52 @@ function findparscrit(
         return target_parameters
     else #tracking stopped early or failed
         if retcode == :tracking #it stopped early because negative solutions were found
-            #println("Solution became negative: ", res.solution)
             #re-run this function to get closer to the positive-negative boundary
-            while abs(neg_component) > tol
-                #initial solution is now last positive solution of the path
+            while abs(minimum(xbefore)) > tol #keep running until minimum is sufficiently small
+                #initial solution is last positive solution of the path
                 initsol = xbefore
-                #initial parameters are the ones corresponding to the new initsol
+                #initial parameters are the ones corresponding to the last postive solution along the path
                 initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
                 #end parameters are the ones correspond to the first negative solution found
                 endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
                 rec_level += 1
                 if rec_level > 100
                     #the search hasn't converged
-                    return target_parameters
+                    println("The search did not converge")
+                    return target_parameters #print the parameters at the search boundary
                 end
                 return findparscrit(syst, initsol, initpars, endpars, tol, rec_level)
             end
             #when tolerance is reached, we are at boundary between positive-negative solutions 
-            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+            return get_parameters_at_t(tbefore, initial_parameters, target_parameters)
         else #complex solutions were found
+            while maximum(abs.(imag(res.solution))) > tol
+                initsol = xbefore
+                initpars = get_parameters_at_t(tbefore, initial_parameters, target_parameters)
+                endpars = get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+                rec_level += 1
+                if rec_level > 100
+                    println("The search did not converge (complex branch).")
+                    return target_parameters #print parameters at the search boundary
+                end
+                return findparscrit(syst, initsol, initpars, endpars, tol, rec_level)
+            end
             #end tracking since we are at boundary between positve-complex solutions
-            return get_parameters_at_t(tfinal, initial_parameters, target_parameters)
+            return get_parameters_at_t(tbefore, initial_parameters, target_parameters)
         end
     end
 end
+
+"""
+process output of findparscrit and generate output to be saved
+1. Flag wether boundary is with negative or with complex or wether search has not converged
+3. Return both parameters and equilibrium at boundary
+"""
+function process_output_boundary(
+    )
+    return pars_crit, xstar_crit, flag
+end
+
 
 # #test all functions 
 
@@ -546,3 +605,280 @@ end
 
 # #create the initial equilibrium
 # println("Solutions: ", solutions(res))
+
+
+#= 
+This part defines modular utilities for tracking positive solutions
+in homotopy continuation problems, detecting feasibility boundaries, 
+and processing outputs cleanly.
+
+Contents:
+- `is_positive`: checks positivity.
+- `is_real`: checks realness.
+- `decide_boundary_type`: determines loss of feasibility.
+- `trackpositive!` and `trackpositive`: tracking solutions while maintaining positivity.
+- `track_and_monitor!`: wrapper to track and check for loss.
+- `findparscrit`: main recursive boundary search.
+- `process_output_boundary`: formats final outputs.
+=#
+
+# --- Basic feasibility checks ---
+
+@inline function is_positive(x::AbstractVector, tol::Float64)
+    return minimum(abs.(real(x))) < tol
+end
+
+"""
+    solve_at_boundary_parameters(syst::System, t_star::Float64,
+                                 initial_parameters::Vector{Float64},
+                                 target_parameters::Vector{Float64})
+
+Given a homotopy defined by `syst` and the parameters it interpolates between,
+solve the system at parameters corresponding to `t_star`.
+
+Returns: `Result` object from `solve()` with all isolated solutions.
+"""
+function solve_at_boundary_parameters(
+    syst::System,
+    t_star::Float64,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64};
+    kwargs...
+)
+    # Interpolate parameters at t_star
+    #t_star = 1
+    p_star = t_star .* initial_parameters .+ (1 - t_star) .* target_parameters
+
+    # Fix the parameters in the system
+    S_fixed = fix_parameters(syst, p_star)
+
+    # Solve the system with fixed parameters
+    result = solve(S_fixed; kwargs...)
+
+    return result
+end
+
+function decide_boundary_type(
+    syst::System,
+    tracker::Tracker,
+    result::TrackerResult,
+    tol::Float64,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64}
+)
+    return_code = result.return_code
+    x = result.solution
+
+    if return_code == :success
+        # Tracking was successful and solution is positive
+        return :boundary
+
+    elseif return_code == :tracking
+        # Tracking was interrupted manually by trackpositive!
+        if any(abs.(real.(x)) .< tol)
+            println("Solution at negative boundary: ", x)
+            return :negative
+        else
+            println("Solution became negative but above tolerance: ", x)
+            return :nonconverged
+        end
+
+    else
+        # Tracking didn't succeed nor found negative solutions: likely due to transition to complex solutions or numerical instability
+        println("Tracking didn't succeed, nor found negative solutions. Attempting to solve full system at boundary...")
+        println("Solution: ", x)
+        boundary_result = solve_at_boundary_parameters(
+            syst, real(result.t), initial_parameters, target_parameters;
+            show_progress = true
+        )
+        n_solutions = nsolutions(boundary_result)
+        deg = degree(syst.expressions[1], variables(syst))
+        n = length(variables(syst))
+        if n_solutions < deg^n
+            println("At a complex bifurcation (", n_solutions, " solutions found, expected ", deg^n, ")")
+            return :complex
+        end
+
+        #otherwise, return :nonconverged
+        println("No complex solution found at boundary, distances are: ")
+        return :nonconverged  # you can add logic to inspect roots and refine this to :complexified
+    end
+end
+
+# --- Tracking with positivity constraint ---
+
+"""
+    trackpositive!(tracker::Tracker, x::AbstractVector, [t1=1.0, t0=0.0]; kwargs...) -> (t_before, x_before)
+
+Track a solution path, stop when any component becomes negative.
+"""
+function trackpositive!(
+    tracker::Tracker,
+    x::AbstractVector,
+    t1 = 1.0,
+    t0 = 0.0;
+    ω::Float64 = NaN,
+    μ::Float64 = NaN,
+    extended_precision::Bool = false,
+    τ::Float64 = Inf,
+    keep_steps::Bool = false,
+    max_initial_step_size::Float64 = Inf,
+    debug::Bool = false,
+)
+    init!(
+        tracker,
+        x,
+        t1,
+        t0;
+        ω = ω,
+        μ = μ,
+        extended_precision = extended_precision,
+        τ = τ,
+        keep_steps = keep_steps,
+        max_initial_step_size = max_initial_step_size,
+    )
+    #record initial t and equilibrium
+    tbefore = t1
+    xbefore = x
+    while is_tracking(tracker.state.code)
+        #record quantities before and after step
+        tbefore = tracker.state.t
+        xbefore = copy(tracker.state.x)
+        step!(tracker, debug)
+        #after a tracking step, check if any of the components are negative.
+        if any(real(tracker.state.x) .< 0)
+            #return the component before negative solution was found
+            return real(tbefore), real(xbefore)
+        end
+    end
+    return real(tbefore), real(xbefore)
+end
+
+# --- Higher level tracking monitor ---
+
+"""
+    track_and_monitor!(syst, initialsol, initial_parameters, target_parameters, tol) -> (t_before, x_before, t_after, x_after, flag)
+
+Track once from initial to target parameters, detect feasibility loss.
+Returns last positive solution, solution after tracking, and boundary flag.
+"""
+function track_and_monitor!(
+    syst::System,
+    initialsol::AbstractVector,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64},
+    tol::Float64,
+    max_step_ratio::Float64 = 1.
+)   
+    par_dist = norm(initial_parameters - target_parameters)
+    #the maximum step size should be 10 times smaller than the parameter euclidean distance
+    max_step_size = par_dist * max_step_ratio 
+
+    tracker = Tracker(CoefficientHomotopy(syst; start_coefficients = initial_parameters,
+                                           target_coefficients = target_parameters);
+                                           options = TrackerOptions(max_steps = Int(1e6))) #increased number of steps
+    t_before, x_before = trackpositive!(tracker, initialsol, 1.0, 0.0, max_initial_step_size = max_step_size) #adjusted max_initial_step_size
+    result = TrackerResult(tracker.homotopy, tracker.state)
+    t_after = real(result.t)
+    x_after = result.solution
+    #store some tracking output
+    flag = decide_boundary_type(syst, tracker, result, tol, initial_parameters, target_parameters)
+    println("")
+    println("")
+    if flag == :complex
+        println("AT COMPLEX BOUNDARY")
+        println("t_before: ", t_after)
+    end
+    return t_before, x_before, t_after, x_after, flag
+end
+
+# --- Recursive critical parameter finder ---
+
+function findparscrit(
+    syst::System,
+    initialsol::AbstractVector,
+    initial_parameters::Vector{Float64},
+    target_parameters::Vector{Float64},
+    tol::Float64 = 1e-9,
+    rec_level::Int = 1
+)
+    println("Recursion level: ", rec_level)
+    println("Initial parameters: ", initial_parameters)
+    println("Target parameters: ", target_parameters)
+    t_before, x_before, t_after, x_after, flag = track_and_monitor!(
+        syst, initialsol, initial_parameters, target_parameters, tol)
+    #get initial and end parameters after tracking
+    initpars = get_parameters_at_t(t_before, initial_parameters, target_parameters)
+    endpars = get_parameters_at_t(t_after, initial_parameters, target_parameters)
+    #println("Flag: ", flag)
+    if flag == :negative || flag == :complex || flag == :boundary
+        # No boundary was crossed, max perturbation reached
+        output = process_output_boundary(endpars, x_after, flag)
+        #println("")
+        #println("Finished at: ", flag, " equilibrium: ", output.xstar_crit)
+        return output
+    elseif rec_level > 5
+        #maximum recursion level reached, return result
+        output = process_output_boundary(target_parameters, x_after, flag)
+        return output
+    else
+        return findparscrit(syst, x_before, initpars, endpars, tol, rec_level + 1)
+    end
+end
+
+
+# --- Output formatter ---
+"""
+    process_output_boundary(pars_crit, xstar_crit, flag)
+
+Formats output after finding a critical point.
+
+Returns a NamedTuple with:
+- flag: Symbol (:success, :negative, :complex, or :nonconverged)
+- pars_crit: Vector of critical parameters
+- xstar_crit: Vector of equilibrium at boundary
+"""
+function process_output_boundary(
+    pars_crit::Vector{Float64},
+    xstar_crit::Vector{ComplexF64},
+    flag::Symbol
+)
+    return (
+        pars_crit = pars_crit,
+        xstar_crit = xstar_crit,
+        flag = flag
+    )
+end
+
+# #test all functions 
+
+# n = 2
+# d = 2
+# rng = MersenneTwister(1)
+
+# pars = sample_parameters(2, 3, rng)
+
+# #get perturbations on the unit sphere
+
+# perts = points_hypersphere(2, 1.0, 10)
+# rhomax = 0.5
+# r = pars[1]
+
+# @var  x[1:2]
+# @var α[1:2]
+
+# eqs = build_glvhoi(pars, x)
+# ref_eqs, coeffs_mat = get_ref_polynomials(x, d, 2, coeff_name = :c)
+# inds_growth_rates = get_ind_coeffs_subs(ref_eqs[1], x, "order", [0])
+# eqs_inter = parametrize_interactions(eqs, ref_eqs, x, inds_growth_rates)
+# eqs_inter_str = parametrize_strengths(eqs_inter, x, α)
+# syst = build_parametrized_glvhoi(eqs_inter_str, x, coeffs_mat, inds_growth_rates, α)
+
+# #evaluate system at α = 0.5
+
+# #set up a particular solution to this system
+# start_solutions = repeat([1], n)
+# initial_parameters = vcat(r, [0.5, 0.5])
+# end_parameters = vcat(r .+ rhomax*perts[1,:], [0.5, 0.5])
+
+# pars_crit, xstar_crit, flag = findparscrit(syst, start_solutions, initial_parameters, end_parameters)
