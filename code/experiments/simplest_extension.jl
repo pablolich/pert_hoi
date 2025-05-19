@@ -148,7 +148,7 @@ end
 #ECOSYSTEMS TO BE STUDIED
 nsim = 1000 # Number simulations
 d = 2; @var α[1:d]  # Degree of polynomials to solve (interaction order of ecosystem is d+1)
-nspp = 4 #number of species
+nspp = 5 #number of species
 #pre-generate all parameter sets
 generate_and_save_parameter_sets(nsim, nspp, d, "../../data/parameter_sets/n_$nspp")
 # Load pre-generated parameters
@@ -159,7 +159,7 @@ alpha_vec = [0.1, 0.5]  # Values of relative interaction strength for each inter
 pert_size = 10  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
 #load perturbation directions from file
-pts = readdlm("../../data/thompson_perturbations/optimized_n500_d4_cost_103994.251689.txt")
+pts = readdlm("../../data/thompson_perturbations/optimized_n500_d5_cost_98699.856868.txt")
 pert_dirs = pts./sqrt.(sum(pts.^2, dims=2))  # normalize each point
 #pert_dirs = points_hypersphere(3, 1.0, 1000, false)
 n_perts = size(pert_dirs)[1]  # Number of perturbations
