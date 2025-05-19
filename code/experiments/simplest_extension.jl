@@ -1,7 +1,7 @@
 using DelimitedFiles
 using Serialization
 using LinearAlgebra
-include("../general_perturbation_functions.jl")
+include("../source_function/general_perturbation_functions.jl")
 #this script deals with the question: 
 #how does the histogram of distances change when
 #d = 2, we perturb growth rates (d_pert = 0), n vary from 2 to 7, 
@@ -146,23 +146,23 @@ function load_parameter_set(n::Int, seed::Int, folder::String)
 end
 
 #ECOSYSTEMS TO BE STUDIED
-nsim = 1000  # Number simulations
+nsim = 1000 # Number simulations
 d = 2; @var α[1:d]  # Degree of polynomials to solve (interaction order of ecosystem is d+1)
-nspp = 3 #number of species
+nspp = 4 #number of species
 #pre-generate all parameter sets
-generate_and_save_parameter_sets(nsim, nspp, d, "../../data/parameter_sets")
+generate_and_save_parameter_sets(nsim, nspp, d, "../../data/parameter_sets/n_$nspp")
 # Load pre-generated parameters
-alpha_vec = [0.1, 0.9]  # Values of relative interaction strength for each interaction order
+alpha_vec = [0.1, 0.5]  # Values of relative interaction strength for each interaction order
 
 
 #PERTURBATIONS TO BE STUDIED
 pert_size = 10  # Maximum perturbation
 d_pert = 0  # Order of parameters to perturb
 #load perturbation directions from file
-#pts = readdlm("../../data/thompson_perturbations/optimized_n500_d3_cost_115802.750913.txt")
-#pert_dirs = sqrt.(sum(pts.^2, dims=2))  # normalize each point
-pert_dirs = points_hypersphere(3, 1.0, 20, false)
-n_perts = length(pert_dirs)  # Number of perturbations
+pts = readdlm("../../data/thompson_perturbations/optimized_n500_d4_cost_103994.251689.txt")
+pert_dirs = pts./sqrt.(sum(pts.^2, dims=2))  # normalize each point
+#pert_dirs = points_hypersphere(3, 1.0, 1000, false)
+n_perts = size(pert_dirs)[1]  # Number of perturbations
 
 
 # Loop over n from 3 to 7
@@ -176,7 +176,7 @@ for n in nspp:nspp
         # Open another file for saving all parameters for each n, seed_i
         # Run all simulations
         for seed_i in 1:nsim
-            seed_i, pars = load_parameter_set(n, seed_i, "../../data/parameter_sets/")
+            seed_i, pars = load_parameter_set(n, seed_i, "../../data/parameter_sets/n_$nspp")
             initial_pars = pars[1] #the r's 
             # Build numerical glvhoi system
             eqs = build_glvhoi(pars, x)
@@ -185,7 +185,7 @@ for n in nspp:nspp
             syst = get_parametrized_system(eqs, ref_eqs, coeffs_mat, d_pert, x, α)
         
             # Store the results of the simulation in the main CSV file
-            for pert_i in 1:10 
+            for pert_i in 1:n_perts
                 end_parameters = initial_pars .+ pert_size .* pert_dirs[pert_i,:]
 
                 for alpha_i in alpha_vec  # Loop through each relative strength value

@@ -56,9 +56,50 @@ function histogram_by_order_plot(df::DataFrame)
     return fig
 end
 
+using CSV, DataFrames, CairoMakie, FilePathsBase
+
+function plot_hists_per_seed(df::DataFrame)
+    # Create output folder if it doesn't exist
+    out_dir = "all_hists"
+    isdir(out_dir) || mkdir(out_dir)
+
+    # Group by seed
+    grouped = DataFrames.groupby(df, [:seed_i, :n, :d, :pert_size])
+
+    for g in grouped
+        seed = g.seed_i[1]
+        n = g.n[1]
+        d = g.d[1]
+        pert_size = g.pert_size[1]
+
+        fig = Figure(size = (800, 600))
+        ax = Axis(fig[1, 1],
+            xlabel = "δₚ", ylabel = "Count",
+            title = "Seed = $seed | n = $n, d = $d, pert_size = $pert_size")
+
+        for α in sort(unique(g.alpha_i))
+            values = g[g.alpha_i .== α, :δₚ]
+            values = filter(x -> x != 10.0, values)
+            hist!(ax, values; label = "α = $(round(α, digits=2))", bins = 20, strokewidth = 0.2)
+        end
+
+        axislegend(ax, position = :rb)
+
+        # Save figure in the output folder
+        filename = joinpath(out_dir, "hist_seed$(seed)_n$(n)_d$(d)_pert$(pert_size).pdf")
+        CairoMakie.save(filename, fig)
+    end
+
+    println("Saved one PDF per seed group in folder $out_dir/")
+end
+
+
+
+
 df = CSV.read("../../data/boundary_distances/n_3.csv", DataFrame)
 
 rename!(df, [:seed_i, :n, :d, :pert_size, :pert_i, :alpha_i, :δₚ, :δₚₗᵢₙ, :δₓ, :δₓₗᵢₙ, :flag])
+
 
 # Group by specified columns and compute mean and variance of δₚ
 agg_df = combine(DataFrames.groupby(df, [:seed_i, :n, :d, :pert_size, :alpha_i]),

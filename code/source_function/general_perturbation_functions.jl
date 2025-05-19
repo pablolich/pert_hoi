@@ -683,25 +683,13 @@ function decide_boundary_type(
             return :nonconverged
         end
 
-    else
-        # Tracking didn't succeed nor found negative solutions: likely due to transition to complex solutions or numerical instability
-        println("Tracking didn't succeed, nor found negative solutions. Attempting to solve full system at boundary...")
-        println("Solution: ", x)
-        boundary_result = solve_at_boundary_parameters(
-            syst, real(result.t), initial_parameters, target_parameters;
-            show_progress = true
-        )
-        n_solutions = nsolutions(boundary_result)
-        deg = degree(syst.expressions[1], variables(syst))
-        n = length(variables(syst))
-        if n_solutions < deg^n
-            println("At a complex bifurcation (", n_solutions, " solutions found, expected ", deg^n, ")")
-            return :complex
-        end
-
-        #otherwise, return :nonconverged
-        println("No complex solution found at boundary, distances are: ")
-        return :nonconverged  # you can add logic to inspect roots and refine this to :complexified
+    elseif return_code == :terminated_step_size_too_small || return_code == :terminated_max_steps
+        # Tracking didn't succeed nor found negative solutions only option left is complex bifurcation.
+           return :complex
+    else 
+        # I don't know what this could be: print
+        println("Unkown boundary type: ", return_code)
+        return :nonconverged
     end
 end
 
