@@ -318,6 +318,58 @@ function sample_parameters(n::Int64, order::Int64, rng::MersenneTwister)
     return pars
 end
 
+using Distributions, Random, LinearAlgebra
+
+"""
+Apply Dirichlet-based constraint to a tensor so that for each slice `i`,
+the contraction with xstar gives `-r[i]` as required by equilibrium.
+This version supports arbitrary tensor order ≥ 2.
+"""
+function apply_constrain_dirichlet(n::Int, order::Int, xstar::Vector{Float64}, r::Vector{Float64}, rng::AbstractRNG)
+    @assert length(xstar) == n
+    @assert length(r) == n
+
+    # Tensor size
+    tensor = zeros(Float64, ntuple(_ -> n, order)...)
+
+    # Indices to use for broadcasting later
+    slices = ntuple(_ -> Colon(), order - 1)
+
+    for i in 1:n
+        num_terms = n^(order - 1)
+        dirichlet_weights = rand(rng, Dirichlet(ones(num_terms)))
+
+        # Enumerate all index combinations for slice over last dimension fixed to i
+        inds = CartesianIndices(ntuple(_ -> n, order - 1))
+        for (j, idx) in enumerate(inds)
+            mult = prod(xstar[k] for k in Tuple(idx))
+            tensor[Tuple(idx)..., i] = -r[i] * dirichlet_weights[j] / mult
+        end
+    end
+
+    return tensor
+end
+
+"""
+Sample parameters with Dirichlet-based equilibrium-preserving constraints
+Returns (r, A, B, C, ...) for specified order.
+"""
+function sample_parameters_dirichlet(n::Int, order::Int, rng::AbstractRNG)
+    pars = []
+    r = randn(rng, n)
+    push!(pars, r)
+
+    for o in 2:order
+        T = apply_constrain_dirichlet(n, o, ones(n), r, rng)
+        push!(pars, T)
+    end
+
+    return tuple(pars...)
+end
+# rng = MersenneTwister(42)
+# pars = sample_parameters_dirichlet(6, 3, rng)
+# r, A, B = pars
+
 """
     get_ts_and_xs(tracker_homotopy::Tracker, start_solution::AbstractVector, t₀::Float64=1.0, t₁::Float64=0.0)
 
@@ -689,7 +741,7 @@ function decide_boundary_type(
     else 
         # I don't know what this could be: print
         println("Unkown boundary type: ", return_code)
-        return :nonconverged
+        return :unknown
     end
 end
 
